@@ -1,50 +1,16 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Flag, ChevronRight, ChevronLeft, Plus, Trash2, Copy, Check, Home, X, BarChart3 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { storeGet, storeSet, storeDelete } from "./lib/storage.js";
 
-// ---------- Embedded course data (parcours.csv + trous.csv) ----------
-const COURSES = [
-  { id: 1, nom: "Evreux", nb: 18 },
-  { id: 2, nom: "Normandie Côte d'Albâtre", nb: 18 },
-  { id: 3, nom: "Tréméreuc", nb: 9 },
-  { id: 4, nom: "Manoir de Bévilliers", nb: 9 },
-  { id: 5, nom: "Paris Country Club", nb: 9 },
-  { id: 6, nom: "Bois d'O Pommiers", nb: 9 },
-  { id: 7, nom: "Bois d'O Genêts", nb: 9 },
-  { id: 8, nom: "Bois d'O Étang", nb: 9 },
-  { id: 9, nom: "Bois d'O Pommiers Genêts", nb: 18 },
-  { id: 10, nom: "Claux Amic", nb: 18 },
-  { id: 11, nom: "Etretat", nb: 18 },
-  { id: 12, nom: "Center Parcs", nb: 9 },
-  { id: 13, nom: "Montgenèvre Chaberton", nb: 18 },
-  { id: 14, nom: "Montgenèvre Compact", nb: 9 },
-];
-
-// numero_trou -> {par, hcp} per id_parcours
-const HOLES_RAW = {
-  1: [[1,4,6],[2,5,11],[3,4,12],[4,4,4],[5,3,16],[6,5,13],[7,3,15],[8,4,5],[9,4,1],[10,4,17],[11,4,18],[12,5,9],[13,3,7],[14,4,3],[15,5,14],[16,3,8],[17,4,10],[18,4,2]],
-  2: [[1,5,12],[2,4,13],[3,4,1],[4,4,16],[5,3,4],[6,5,7],[7,4,5],[8,3,8],[9,4,14],[10,4,18],[11,4,15],[12,4,10],[13,3,6],[14,4,2],[15,5,9],[16,3,11],[17,4,17],[18,5,3]],
-  3: [[1,3,7],[2,4,8],[3,3,5],[4,5,4],[5,5,2],[6,4,6],[7,4,1],[8,3,9],[9,4,3]],
-  4: [[1,4,4],[2,5,5],[3,4,6],[4,4,2],[5,3,9],[6,5,7],[7,3,8],[8,4,3],[9,4,1]],
-  5: [[1,4,5],[2,3,2],[3,4,6],[4,4,3],[5,5,1],[6,3,7],[7,4,8],[8,4,9],[9,4,4]],
-  6: [[1,4,2],[2,4,5],[3,5,6],[4,3,7],[5,4,8],[6,3,3],[7,5,1],[8,4,4],[9,4,9]],
-  7: [[1,4,7],[2,3,8],[3,4,1],[4,5,4],[5,4,3],[6,4,6],[7,3,5],[8,5,9],[9,4,2]],
-  8: [[1,5,5],[2,3,3],[3,5,4],[4,3,7],[5,4,9],[6,4,1],[7,4,8],[8,5,6],[9,4,2]],
-  9: [[1,4,2],[2,4,5],[3,5,6],[4,3,7],[5,4,8],[6,3,3],[7,5,1],[8,4,4],[9,4,9],[10,4,7],[11,3,8],[12,4,1],[13,5,4],[14,4,3],[15,4,6],[16,3,5],[17,5,9],[18,4,2]],
-  10: [[1,4,2],[2,3,14],[3,4,8],[4,3,6],[5,5,10],[6,4,4],[7,4,16],[8,4,18],[9,5,12],[10,4,2],[11,3,14],[12,4,8],[13,3,6],[14,5,10],[15,4,4],[16,4,16],[17,4,18],[18,5,12]],
-  11: [[1,4,8],[2,3,16],[3,4,2],[4,4,10],[5,4,6],[6,5,12],[7,4,13],[8,4,4],[9,3,18],[10,5,1],[11,3,11],[12,5,7],[13,3,14],[14,4,3],[15,3,17],[16,4,9],[17,4,15],[18,5,5]],
-  12: [[1,4,4],[2,5,2],[3,3,6],[4,5,3],[5,4,9],[6,5,8],[7,4,7],[8,3,5],[9,4,1]],
-  // Montgenèvre Chaberton (18T, par 69). Pars confirmés par la carte de score.
-  // ATTENTION : les index (HCP) sont PROVISOIRES — déduits de la longueur/du par faute de
-  // carte à jour. Score brut, écart au par et différentiel sont exacts ; seul le Stableford
-  // est approximatif tant qu'ils ne sont pas corrigés via "Modifier un trou".
-  13: [[1,4,5],[2,4,9],[3,5,1],[4,4,7],[5,4,11],[6,4,13],[7,3,17],[8,4,15],[9,5,3],
-       [10,3,10],[11,3,12],[12,4,8],[13,3,14],[14,3,16],[15,3,18],[16,4,4],[17,4,6],[18,5,2]],
-  // Montgenèvre Compact (9T, par 29). Pars confirmés par la carte ; index PROVISOIRES.
-  // Pas de slope/CR : parcours compact non classé — aucun différentiel ne sera calculé,
-  // ce qui est le comportement correct (mieux que d'inventer un rating).
-  14: [[1,3,3],[2,3,4],[3,3,5],[4,3,6],[5,3,7],[6,3,8],[7,3,9],[8,4,1],[9,4,2]],
-};
+// Les parcours (partagés + privés par utilisateur) vivent désormais dans Supabase
+// (table `courses`, voir supabase/schema.sql) plutôt qu'en dur ici. `customCourses`
+// — chargé via storeGet("custom-courses"), voir lib/storage.js — contient donc
+// maintenant TOUS les parcours visibles, pas seulement ceux ajoutés par l'utilisateur ;
+// coursHoles()/baseRating() plus bas retombent déjà sur customCourses quand ces
+// constantes sont vides, donc aucune autre ligne n'a besoin de changer.
+const COURSES = [];
+const HOLES_RAW = {};
 
 // Change ce numéro à chaque mise à jour livrée — affiché sur l'accueil pour vérifier
 // en un coup d'œil qu'une republication a bien pris effet.
@@ -109,31 +75,10 @@ const LANDING_ZONES = [
 
 // ---------- Embedded rating.csv : slope + SSS (course rating) par parcours/config/départ ----------
 const TEES = ["Rouges", "Jaunes", "Bleus", "Blancs"];
-const RATINGS = [
-  { idParcours: 1, config: "Aller", nb: 9, par: 36, rouges: { slope: 58, sss: 33.3 }, jaunes: { slope: 61, sss: 35.1 }, bleus: { slope: 60, sss: 34.4 }, blancs: { slope: 67, sss: 36.7 } },
-  { idParcours: 1, config: "Retour", nb: 9, par: 36, rouges: { slope: 56, sss: 32.1 }, jaunes: { slope: 62, sss: 34.6 }, bleus: { slope: 59, sss: 33.2 }, blancs: { slope: 68, sss: 36 } },
-  { idParcours: 1, config: "18 trous", nb: 18, par: 72, rouges: { slope: 114, sss: 65.4 }, jaunes: { slope: 123, sss: 69.7 }, bleus: { slope: 119, sss: 67.6 }, blancs: { slope: 135, sss: 72.7 } },
-  { idParcours: 2, config: "Aller", nb: 9, par: 36, rouges: { slope: 58, sss: 32.9 }, jaunes: { slope: 58, sss: 32.9 }, bleus: { slope: 60, sss: 33.8 }, blancs: { slope: 66, sss: 36 } },
-  { idParcours: 2, config: "Retour", nb: 9, par: 36, rouges: { slope: 59, sss: 32.8 }, jaunes: { slope: 64, sss: 34.9 }, bleus: { slope: 61, sss: 33.8 }, blancs: { slope: 64, sss: 36.3 } },
-  { idParcours: 2, config: "18 trous", nb: 18, par: 72, rouges: { slope: 117, sss: 65.7 }, jaunes: { slope: 126, sss: 69.9 }, bleus: { slope: 121, sss: 67.6 }, blancs: { slope: 130, sss: 72.3 } },
-  { idParcours: 3, config: "9 trous", nb: 9, par: 35, rouges: { slope: 61, sss: 32.9 }, jaunes: { slope: 67, sss: 34.8 }, bleus: { slope: 66, sss: 34.1 }, blancs: { slope: 69, sss: 35.6 } },
-  { idParcours: 4, config: "9 trous", nb: 9, par: 35, rouges: { slope: 59, sss: 33.2 }, jaunes: { slope: 62, sss: 34.6 }, bleus: { slope: 60, sss: 33.6 }, blancs: { slope: 65, sss: 35.4 } },
-  { idParcours: 5, config: "9 trous", nb: 9, par: 35, rouges: { slope: 61, sss: 33.4 }, jaunes: { slope: 63, sss: 34.7 }, bleus: { slope: 61, sss: 33.7 }, blancs: { slope: 63, sss: 35.2 } },
-  { idParcours: 6, config: "9 trous", nb: 9, par: 36, rouges: { slope: 55, sss: 32.1 }, jaunes: { slope: 57, sss: 33.3 }, bleus: { slope: 55, sss: 32.1 }, blancs: { slope: 59, sss: 34.5 } },
-  { idParcours: 7, config: "9 trous", nb: 9, par: 36, rouges: { slope: 55, sss: 33.9 }, jaunes: { slope: 59, sss: 35.8 }, bleus: { slope: 57, sss: 34.6 }, blancs: { slope: 63, sss: 36.6 } },
-  { idParcours: 8, config: "9 trous", nb: 9, par: 37, rouges: { slope: 59, sss: 34 }, jaunes: { slope: 64, sss: 36.1 }, bleus: { slope: 60, sss: 34.5 }, blancs: { slope: 62, sss: 37.1 } },
-  { idParcours: 9, config: "18 trous", nb: 18, par: 72, rouges: { slope: 110, sss: 66 }, jaunes: { slope: 116, sss: 69.1 }, bleus: { slope: 111, sss: 66.7 }, blancs: { slope: 122, sss: 71.1 } },
-  { idParcours: 10, config: "Aller", nb: 9, par: 36, rouges: { slope: 59, sss: 31.4 }, jaunes: { slope: 66, sss: 34.1 }, bleus: { slope: 60, sss: 32.4 }, blancs: { slope: 66, sss: 35.7 } },
-  { idParcours: 10, config: "Retour", nb: 9, par: 36, rouges: { slope: 58, sss: 31.8 }, jaunes: { slope: 73, sss: 34.5 }, bleus: { slope: 62, sss: 32.8 }, blancs: { slope: 69, sss: 35.5 } },
-  { idParcours: 10, config: "18 trous", nb: 18, par: 72, rouges: { slope: 117, sss: 63.2 }, jaunes: { slope: 139, sss: 68.6 }, bleus: { slope: 122, sss: 65.2 }, blancs: { slope: 135, sss: 71.2 } },
-  { idParcours: 11, config: "Aller", nb: 9, par: 35, rouges: { slope: 56, sss: 32.5 }, jaunes: { slope: 60, sss: 34.5 }, bleus: { slope: 57, sss: 33.4 }, blancs: { slope: 63, sss: 35.4 } },
-  { idParcours: 11, config: "Retour", nb: 9, par: 36, rouges: { slope: 57, sss: 32.8 }, jaunes: { slope: 62, sss: 35 }, bleus: { slope: 60, sss: 33.9 }, blancs: { slope: 69, sss: 35.9 } },
-  { idParcours: 11, config: "18 trous", nb: 18, par: 71, rouges: { slope: 113, sss: 65.3 }, jaunes: { slope: 122, sss: 69.5 }, bleus: { slope: 117, sss: 67.3 }, blancs: { slope: 132, sss: 71.3 } },
-  { idParcours: 12, config: "9 trous", nb: 9, par: 37, rouges: { slope: 59, sss: 33.8 }, jaunes: { slope: 62, sss: 35.1 }, bleus: { slope: 60, sss: 34.1 }, blancs: { slope: 64, sss: 36.4 } },
-  { idParcours: 13, config: "Aller", nb: 9, par: 37, rouges: { slope: 57, sss: 31.7 }, jaunes: { slope: 60, sss: 33.0 }, bleus: { slope: 57, sss: 31.8 }, blancs: { slope: 62, sss: 33.5 } },
-  { idParcours: 13, config: "Retour", nb: 9, par: 32, rouges: { slope: 57, sss: 32.7 }, jaunes: { slope: 60, sss: 34.0 }, bleus: { slope: 57, sss: 32.8 }, blancs: { slope: 62, sss: 34.5 } },
-  { idParcours: 13, config: "18 trous", nb: 18, par: 69, rouges: { slope: 113, sss: 64.4 }, jaunes: { slope: 120, sss: 67.0 }, bleus: { slope: 113, sss: 64.6 }, blancs: { slope: 124, sss: 68.0 } },
-];
+// Slope/CR des parcours partagés : chargés depuis Supabase (courses.ratings), voir
+// le commentaire au-dessus de COURSES. baseRating() plus bas retombe déjà sur
+// customCourses quand RATINGS est vide.
+const RATINGS = [];
 // Configuration jouée, déduite du parcours et de ce qu'on joue.
 function resolveConfig(courseNb, nbToPlay, firstNumero) {
   if (courseNb === 9) return "9 trous";
@@ -252,27 +197,6 @@ function parseCSVText(text) {
     rows.push(row);
   }
   return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0] !== ""));
-}
-
-async function storeGet(key) {
-  try {
-    const r = await window.storage.get(key, false);
-    return r ? JSON.parse(r.value) : null;
-  } catch (e) {
-    return null;
-  }
-}
-async function storeSet(key, value) {
-  try {
-    await window.storage.set(key, JSON.stringify(value), false);
-  } catch (e) {
-    console.error("storage error", e);
-  }
-}
-async function storeDelete(key) {
-  try {
-    await window.storage.delete(key, false);
-  } catch (e) {}
 }
 
 // Configurations possibles d'un parcours ajouté : un 9 trous n'en a qu'une,

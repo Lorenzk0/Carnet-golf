@@ -1,7 +1,12 @@
+import AuthGate from './AuthGate.jsx'
 import GolfTracker from './GolfTracker.jsx'
 
 function App() {
-  return <GolfTracker />
+  return (
+    <AuthGate>
+      <GolfTracker />
+    </AuthGate>
+  )
 }
 
 export default App
