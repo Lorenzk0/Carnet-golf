@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js'
+import { cacheGet, cacheSet, cacheDelete, queueAdd, queueAll, queueRemove } from './offlineDb.js'
 
 // Remplace la persistance locale (storeGet/storeSet/storeDelete de GolfTracker.jsx,
 // initialement adossée à window.storage) par des appels Supabase, en conservant les
@@ -21,6 +22,28 @@ export function setStorageErrorHandler(fn) {
 function reportError(key, action, e) {
   console.error(`storage error (${action})`, key, e)
   onStorageError?.({ key, action, message: e?.message || String(e) })
+}
+
+// AuthGate.jsx s'abonne pour afficher le nombre d'écritures en attente de synchro.
+let onQueueChange = null
+export function setQueueChangeHandler(fn) {
+  onQueueChange = fn
+}
+async function notifyQueueChange() {
+  onQueueChange?.((await queueAll()).length)
+}
+
+// Distingue une vraie panne réseau (fetch qui échoue — on doit mettre en attente et
+// réessayer plus tard, sans alarmer l'utilisateur) d'une vraie erreur Supabase (policy
+// RLS, donnée invalide — à signaler immédiatement, réessayer ne changerait rien). Les
+// erreurs Postgrest ont toujours code/details/hint ; une panne fetch est un TypeError
+// sans ces champs (message du type "Failed to fetch" / "NetworkError...").
+function isNetworkError(e) {
+  if (!e) return false
+  if (typeof e.code === 'string' || typeof e.details === 'string') return false
+  if (e instanceof TypeError) return true
+  const msg = String(e.message || '').toLowerCase()
+  return msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')
 }
 
 // Mirroir de holeStrokes() dans GolfTracker.jsx : score réel d'un trou = coups +
@@ -198,41 +221,105 @@ async function getRoundsIndex() {
   }))
 }
 
+// Dispatch Supabase brut (aucune mise en cache/file ici) : identique à ce que
+// storeGet/storeSet faisaient avant l'ajout de la couche offline-first. Réutilisé tel
+// quel par flushQueue() pour rejouer une écriture en attente.
+async function performGet(key) {
+  if (key === 'rounds-index') return await getRoundsIndex()
+  if (key === 'custom-clubs') return (await getUserSettings()).custom_clubs
+  if (key === 'custom-courses') return await getAllCourses()
+  if (key === 'hole-overrides') return (await getUserSettings()).hole_overrides
+  if (key === 'rating-overrides') return (await getUserSettings()).rating_overrides
+  if (key.startsWith('round:')) return await getRound(key.slice('round:'.length))
+  return null
+}
+
+async function performSet(key, value) {
+  if (key === 'rounds-index') return // dérivé de `rounds`, rien à persister séparément
+  if (key === 'custom-clubs') return await patchUserSettings({ custom_clubs: value })
+  if (key === 'custom-courses') return await syncCourses(value)
+  if (key === 'hole-overrides') return await patchUserSettings({ hole_overrides: value })
+  if (key === 'rating-overrides') return await patchUserSettings({ rating_overrides: value })
+  if (key.startsWith('round:')) return await saveRound(value)
+}
+
+async function performDelete(key) {
+  if (key.startsWith('round:')) {
+    const { error } = await supabase.from('rounds').delete().eq('id', key.slice('round:'.length))
+    if (error) throw error
+  }
+}
+
+// Réseau d'abord (comportement inchangé quand il y a du réseau) ; secours sur la
+// dernière valeur connue en local uniquement si la requête échoue pour une raison
+// réseau (pas pour une vraie erreur Supabase, qui reste signalée normalement).
 export async function storeGet(key) {
   try {
-    if (key === 'rounds-index') return await getRoundsIndex()
-    if (key === 'custom-clubs') return (await getUserSettings()).custom_clubs
-    if (key === 'custom-courses') return await getAllCourses()
-    if (key === 'hole-overrides') return (await getUserSettings()).hole_overrides
-    if (key === 'rating-overrides') return (await getUserSettings()).rating_overrides
-    if (key.startsWith('round:')) return await getRound(key.slice('round:'.length))
-    return null
+    const result = await performGet(key)
+    await cacheSet(key, result)
+    return result
   } catch (e) {
+    if (isNetworkError(e)) {
+      // Hors ligne : pas d'erreur affichée, même sans donnée locale disponible — les
+      // écrans du composant ont déjà leurs propres messages "aucune partie/parcours
+      // pour l'instant" pour ce cas, un bandeau rouge en plus serait trompeur (ça
+      // ressemblerait à un bug plutôt qu'à une simple absence de réseau).
+      const cached = await cacheGet(key)
+      return cached !== undefined ? cached : null
+    }
     reportError(key, 'get', e)
     return null
   }
 }
 
+// Toujours écrit en local d'abord (aucune perte si l'app se ferme hors ligne), puis
+// tente Supabase comme avant. Une panne réseau met l'écriture en file pour retentative
+// automatique (flushQueue) au lieu de la perdre silencieusement.
 export async function storeSet(key, value) {
+  await cacheSet(key, value)
   try {
-    if (key === 'rounds-index') return // dérivé de `rounds`, rien à persister séparément
-    if (key === 'custom-clubs') return await patchUserSettings({ custom_clubs: value })
-    if (key === 'custom-courses') return await syncCourses(value)
-    if (key === 'hole-overrides') return await patchUserSettings({ hole_overrides: value })
-    if (key === 'rating-overrides') return await patchUserSettings({ rating_overrides: value })
-    if (key.startsWith('round:')) return await saveRound(value)
+    await performSet(key, value)
   } catch (e) {
+    if (isNetworkError(e)) {
+      await queueAdd({ key, value, action: 'set' })
+      await notifyQueueChange()
+      return
+    }
     reportError(key, 'set', e)
   }
 }
 
 export async function storeDelete(key) {
+  await cacheDelete(key)
   try {
-    if (key.startsWith('round:')) {
-      const { error } = await supabase.from('rounds').delete().eq('id', key.slice('round:'.length))
-      if (error) throw error
-    }
+    await performDelete(key)
   } catch (e) {
+    if (isNetworkError(e)) {
+      await queueAdd({ key, value: null, action: 'delete' })
+      await notifyQueueChange()
+      return
+    }
     reportError(key, 'delete', e)
   }
+}
+
+// Rejoue les écritures en attente. À appeler au retour du réseau (événement `online`)
+// et à l'ouverture de l'app. Une entrée qui échoue encore pour une raison réseau reste
+// en file (nouvelle tentative au prochain appel) ; une vraie erreur est signalée puis
+// retirée (la rejouer indéfiniment n'aiderait pas).
+export async function flushQueue() {
+  const pending = await queueAll()
+  for (const op of pending) {
+    try {
+      if (op.action === 'set') await performSet(op.key, op.value)
+      else if (op.action === 'delete') await performDelete(op.key)
+      await queueRemove(op.id)
+    } catch (e) {
+      if (!isNetworkError(e)) {
+        reportError(op.key, op.action, e)
+        await queueRemove(op.id)
+      }
+    }
+  }
+  await notifyQueueChange()
 }
