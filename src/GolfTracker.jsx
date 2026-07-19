@@ -512,26 +512,11 @@ export default function GolfTracker() {
     const roundsIn = isLegacyArray ? parsed : parsed && Array.isArray(parsed.rounds) ? parsed.rounds : null;
     if (!roundsIn) throw new Error("Le texte collé n'est pas une sauvegarde valide.");
 
-    for (const r of roundsIn) {
-      if (!r || !r.id || !Array.isArray(r.holes)) continue;
-      await storeSet(`round:${r.id}`, r);
-    }
-    const importedEntries = roundsIn
-      .filter((r) => r && r.id && Array.isArray(r.holes))
-      .map((r) => ({
-        id: r.id,
-        date: r.date,
-        courseName: r.courseName,
-        nbHoles: r.holes.length,
-        score: r.holes.reduce((s, h) => s + holeStrokes(h), 0),
-        complete: r.holes.every((h) => h.putts),
-      }));
-    const importedIds = new Set(importedEntries.map((e) => e.id));
-    const merged = [...importedEntries, ...roundsIndex.filter((e) => !importedIds.has(e.id))];
-    setRoundsIndex(merged);
-    await storeSet("rounds-index", merged);
-
     // Réglages (format v2 uniquement) : fusion avec l'existant plutôt qu'écrasement.
+    // Restaurés AVANT les parties : une partie peut référencer un parcours privé
+    // (courseId) présent dans cette même sauvegarde — il doit déjà exister en base
+    // (Supabase impose la contrainte de clé étrangère rounds.course_id -> courses.id)
+    // avant qu'on tente d'enregistrer une partie qui pointe dessus.
     let settingsRestored = false;
     if (!isLegacyArray) {
       if (Array.isArray(parsed.customClubs)) {
@@ -560,6 +545,26 @@ export default function GolfTracker() {
         settingsRestored = true;
       }
     }
+
+    for (const r of roundsIn) {
+      if (!r || !r.id || !Array.isArray(r.holes)) continue;
+      await storeSet(`round:${r.id}`, r);
+    }
+    const importedEntries = roundsIn
+      .filter((r) => r && r.id && Array.isArray(r.holes))
+      .map((r) => ({
+        id: r.id,
+        date: r.date,
+        courseName: r.courseName,
+        nbHoles: r.holes.length,
+        score: r.holes.reduce((s, h) => s + holeStrokes(h), 0),
+        complete: r.holes.every((h) => h.putts),
+      }));
+    const importedIds = new Set(importedEntries.map((e) => e.id));
+    const merged = [...importedEntries, ...roundsIndex.filter((e) => !importedIds.has(e.id))];
+    setRoundsIndex(merged);
+    await storeSet("rounds-index", merged);
+
     return { rounds: importedEntries.length, settingsRestored, legacy: isLegacyArray };
   }
 
