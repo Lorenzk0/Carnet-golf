@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Flag, LogOut, X } from 'lucide-react'
+import { Flag, LogOut, X, WifiOff } from 'lucide-react'
 import { supabase } from './lib/supabaseClient.js'
-import { setStorageErrorHandler } from './lib/storage.js'
+import { setStorageErrorHandler, setQueueChangeHandler, flushQueue } from './lib/storage.js'
 
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined) // undefined = chargement, null = déconnecté
@@ -9,6 +9,7 @@ export default function AuthGate({ children }) {
   const [status, setStatus] = useState('idle') // idle | sending | sent | error
   const [errorMsg, setErrorMsg] = useState('')
   const [storageErrors, setStorageErrors] = useState([])
+  const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -22,6 +23,20 @@ export default function AuthGate({ children }) {
     setStorageErrorHandler((err) => setStorageErrors((prev) => [...prev, { ...err, id: Date.now() + Math.random() }]))
     return () => setStorageErrorHandler(null)
   }, [])
+
+  // File d'attente hors-ligne : on retente la synchro au retour du réseau et à
+  // l'ouverture de l'app (au cas où des écritures seraient restées en attente d'une
+  // session précédente rouverte déjà connectée).
+  useEffect(() => {
+    if (!session) return
+    setQueueChangeHandler(setPendingCount)
+    flushQueue()
+    window.addEventListener('online', flushQueue)
+    return () => {
+      setQueueChangeHandler(null)
+      window.removeEventListener('online', flushQueue)
+    }
+  }, [session])
 
   function dismissStorageError(id) {
     setStorageErrors((prev) => prev.filter((e) => e.id !== id))
@@ -102,8 +117,16 @@ export default function AuthGate({ children }) {
 
   return (
     <div className="relative">
-      {storageErrors.length > 0 && (
+      {(pendingCount > 0 || storageErrors.length > 0) && (
         <div className="sticky top-0 z-30 space-y-1 p-2">
+          {pendingCount > 0 && (
+            <div className="bg-amber-600 text-white text-xs rounded-lg px-3 py-2 flex items-center gap-2 shadow-lg">
+              <WifiOff size={14} className="shrink-0" />
+              <span>
+                Hors ligne — {pendingCount} modification{pendingCount > 1 ? "s" : ""} en attente de synchronisation.
+              </span>
+            </div>
+          )}
           {storageErrors.map((e) => (
             <div
               key={e.id}
