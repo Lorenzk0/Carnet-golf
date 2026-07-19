@@ -49,22 +49,26 @@ async function getAllCourses() {
   }))
 }
 
-// N'insère que le dernier parcours du tableau : addCustomCourse() est le seul appelant
-// de storeSet("custom-courses", ...) et ajoute toujours exactement un nouveau parcours
-// en fin de tableau — les précédents sont déjà en base.
-async function saveNewCustomCourse(course) {
-  const { error: courseErr } = await supabase.from('courses').insert({
-    id: course.id,
-    nom: course.nom,
-    nb: course.nb,
-    ratings: course.ratings || null,
-  })
+// Upsert de TOUS les parcours du tableau (pas seulement le dernier) : addCustomCourse()
+// n'ajoute qu'un parcours à la fois, mais importBackup() peut fusionner plusieurs
+// parcours restaurés d'un coup. `value` mélange aussi les parcours partagés (déjà en
+// base, owner_id null) — les upserter ne les corrompt pas : la policy RLS d'update
+// exige owner_id = auth.uid(), donc l'écriture sur une ligne partagée est simplement
+// ignorée (0 ligne affectée) plutôt que refusée avec une erreur.
+async function syncCourses(courses) {
+  if (!courses.length) return
+  const { error: courseErr } = await supabase.from('courses').upsert(
+    courses.map((c) => ({ id: c.id, nom: c.nom, nb: c.nb, ratings: c.ratings || null }))
+  )
   if (courseErr) throw courseErr
 
-  if (course.holes?.length) {
-    const { error: holesErr } = await supabase.from('holes').insert(
-      course.holes.map((h) => ({ course_id: course.id, numero: h.numero, par: h.par, hcp: h.hcp }))
-    )
+  const holeRows = courses.flatMap((c) =>
+    (c.holes || []).map((h) => ({ course_id: c.id, numero: h.numero, par: h.par, hcp: h.hcp }))
+  )
+  if (holeRows.length) {
+    const { error: holesErr } = await supabase
+      .from('holes')
+      .upsert(holeRows, { onConflict: 'course_id,numero' })
     if (holesErr) throw holesErr
   }
 }
@@ -196,7 +200,7 @@ export async function storeSet(key, value) {
   try {
     if (key === 'rounds-index') return // dérivé de `rounds`, rien à persister séparément
     if (key === 'custom-clubs') return await patchUserSettings({ custom_clubs: value })
-    if (key === 'custom-courses') return await saveNewCustomCourse(value[value.length - 1])
+    if (key === 'custom-courses') return await syncCourses(value)
     if (key === 'hole-overrides') return await patchUserSettings({ hole_overrides: value })
     if (key === 'rating-overrides') return await patchUserSettings({ rating_overrides: value })
     if (key.startsWith('round:')) return await saveRound(value)
