@@ -231,7 +231,7 @@ function Pill({ active, onClick, children, className = "" }) {
   );
 }
 
-export default function GolfTracker() {
+export default function GolfTracker({ userEmail }) {
   const [screen, setScreen] = useState("home"); // home | setup | play | summary | settings
   const [settingsTab, setSettingsTab] = useState("clubs");
   const [roundsIndex, setRoundsIndex] = useState([]);
@@ -730,6 +730,7 @@ export default function GolfTracker() {
             <h1 className="text-2xl font-bold">Carnet de coups</h1>
           </div>
           <div className="flex flex-col items-end gap-0.5">
+            {userEmail && <div className="text-emerald-300/70 text-xs mb-1">{userEmail}</div>}
             <button onClick={() => setScreen("dashboard")} className="text-emerald-200 text-xs underline">Tableau de bord</button>
             <button onClick={() => { setSettingsTab("backup"); setScreen("settings"); }} className="text-emerald-200 text-xs underline">Sauvegarde</button>
             <button onClick={() => { setSettingsTab("clubs"); setScreen("settings"); }} className="text-emerald-200 text-xs underline">Parcours &amp; clubs</button>
