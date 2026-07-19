@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Flag, LogOut } from 'lucide-react'
+import { Flag, LogOut, X } from 'lucide-react'
 import { supabase } from './lib/supabaseClient.js'
+import { setStorageErrorHandler } from './lib/storage.js'
 
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined) // undefined = chargement, null = déconnecté
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle') // idle | sending | sent | error
   const [errorMsg, setErrorMsg] = useState('')
+  const [storageErrors, setStorageErrors] = useState([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -15,6 +17,15 @@ export default function AuthGate({ children }) {
     })
     return () => sub.subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    setStorageErrorHandler((err) => setStorageErrors((prev) => [...prev, { ...err, id: Date.now() + Math.random() }]))
+    return () => setStorageErrorHandler(null)
+  }, [])
+
+  function dismissStorageError(id) {
+    setStorageErrors((prev) => prev.filter((e) => e.id !== id))
+  }
 
   async function sendMagicLink(e) {
     e.preventDefault()
@@ -91,6 +102,23 @@ export default function AuthGate({ children }) {
 
   return (
     <div className="relative">
+      {storageErrors.length > 0 && (
+        <div className="sticky top-0 z-30 space-y-1 p-2">
+          {storageErrors.map((e) => (
+            <div
+              key={e.id}
+              className="bg-red-600 text-white text-xs rounded-lg px-3 py-2 flex items-start justify-between gap-2 shadow-lg"
+            >
+              <div>
+                <span className="font-semibold">Erreur de synchro</span> ({e.action} {e.key}) : {e.message}
+              </div>
+              <button onClick={() => dismissStorageError(e.id)} className="shrink-0">
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <button
         onClick={() => supabase.auth.signOut()}
         title="Se déconnecter"

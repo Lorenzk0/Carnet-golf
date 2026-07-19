@@ -11,6 +11,18 @@ import { supabase } from './supabaseClient.js'
 // TOUS les parcours visibles (partagés + privés), puisque `allCourses` du composant
 // vaut `[...COURSES, ...customCourses]` avec COURSES = [].
 
+// Les erreurs Supabase étaient auparavant seulement passées à console.error — invisible
+// en pratique sur mobile (pas d'accès simple aux devtools). AuthGate.jsx s'abonne via
+// setStorageErrorHandler() pour afficher un bandeau avec le vrai message d'erreur.
+let onStorageError = null
+export function setStorageErrorHandler(fn) {
+  onStorageError = fn
+}
+function reportError(key, action, e) {
+  console.error(`storage error (${action})`, key, e)
+  onStorageError?.({ key, action, message: e?.message || String(e) })
+}
+
 // Mirroir de holeStrokes() dans GolfTracker.jsx : score réel d'un trou = coups +
 // pénalités fictives + putts. Dupliqué ici (3 lignes) plutôt que d'exporter depuis
 // le composant, pour ne pas toucher à sa structure.
@@ -49,20 +61,25 @@ async function getAllCourses() {
   }))
 }
 
-// Upsert de TOUS les parcours du tableau (pas seulement le dernier) : addCustomCourse()
-// n'ajoute qu'un parcours à la fois, mais importBackup() peut fusionner plusieurs
-// parcours restaurés d'un coup. `value` mélange aussi les parcours partagés (déjà en
-// base, owner_id null) — les upserter ne les corrompt pas : la policy RLS d'update
-// exige owner_id = auth.uid(), donc l'écriture sur une ligne partagée est simplement
-// ignorée (0 ligne affectée) plutôt que refusée avec une erreur.
+// Upsert des parcours PRIVÉS du tableau (addCustomCourse() n'en ajoute qu'un à la fois,
+// mais importBackup() peut en fusionner plusieurs d'un coup). `value` mélange aussi les
+// parcours partagés déjà en base (owner_id null) : contrairement à un UPDATE filtré
+// classique, un UPSERT qui tombe en conflit sur une ligne que la policy RLS refuse lève
+// une erreur (et fait échouer toute la requête, y compris les lignes légitimes) au lieu
+// de l'ignorer silencieusement — donc on exclut les parcours partagés en amont plutôt
+// que de compter sur RLS pour les filtrer. Les parcours ajoutés par l'utilisateur ont
+// tous un id "custom-..." (voir saveCourse() dans GolfTracker.jsx), ce qui suffit à les
+// distinguer sans avoir besoin de connaître owner_id côté client.
 async function syncCourses(courses) {
-  if (!courses.length) return
+  const own = courses.filter((c) => String(c.id).startsWith('custom-'))
+  if (!own.length) return
+
   const { error: courseErr } = await supabase.from('courses').upsert(
-    courses.map((c) => ({ id: c.id, nom: c.nom, nb: c.nb, ratings: c.ratings || null }))
+    own.map((c) => ({ id: c.id, nom: c.nom, nb: c.nb, ratings: c.ratings || null }))
   )
   if (courseErr) throw courseErr
 
-  const holeRows = courses.flatMap((c) =>
+  const holeRows = own.flatMap((c) =>
     (c.holes || []).map((h) => ({ course_id: c.id, numero: h.numero, par: h.par, hcp: h.hcp }))
   )
   if (holeRows.length) {
@@ -191,7 +208,7 @@ export async function storeGet(key) {
     if (key.startsWith('round:')) return await getRound(key.slice('round:'.length))
     return null
   } catch (e) {
-    console.error('storage error (get)', key, e)
+    reportError(key, 'get', e)
     return null
   }
 }
@@ -205,7 +222,7 @@ export async function storeSet(key, value) {
     if (key === 'rating-overrides') return await patchUserSettings({ rating_overrides: value })
     if (key.startsWith('round:')) return await saveRound(value)
   } catch (e) {
-    console.error('storage error (set)', key, e)
+    reportError(key, 'set', e)
   }
 }
 
@@ -216,6 +233,6 @@ export async function storeDelete(key) {
       if (error) throw error
     }
   } catch (e) {
-    console.error('storage error (delete)', key, e)
+    reportError(key, 'delete', e)
   }
 }
