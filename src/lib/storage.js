@@ -35,15 +35,16 @@ async function notifyQueueChange() {
 
 // Distingue une vraie panne réseau (fetch qui échoue — on doit mettre en attente et
 // réessayer plus tard, sans alarmer l'utilisateur) d'une vraie erreur Supabase (policy
-// RLS, donnée invalide — à signaler immédiatement, réessayer ne changerait rien). Les
-// erreurs Postgrest ont toujours code/details/hint ; une panne fetch est un TypeError
-// sans ces champs (message du type "Failed to fetch" / "NetworkError...").
+// RLS, donnée invalide — à signaler immédiatement, réessayer ne changerait rien).
+//
+// postgrest-js n'IGNORE JAMAIS une panne fetch en la laissant remonter comme exception —
+// il la capture en interne et renvoie un `error` normal avec `code: ''` (chaîne vide,
+// jamais absente). Une vraie erreur Postgrest/PostgreSQL a elle toujours un code non
+// vide (ex. "42501", "23505", "PGRST116"...). C'est donc `code === ''`, et non un
+// `instanceof TypeError` (qui ne matcherait jamais ici, l'exception ayant déjà été
+// absorbée avant de nous parvenir), qui signale une panne réseau.
 function isNetworkError(e) {
-  if (!e) return false
-  if (typeof e.code === 'string' || typeof e.details === 'string') return false
-  if (e instanceof TypeError) return true
-  const msg = String(e.message || '').toLowerCase()
-  return msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')
+  return !!e && e.code === ''
 }
 
 // Mirroir de holeStrokes() dans GolfTracker.jsx : score réel d'un trou = coups +
