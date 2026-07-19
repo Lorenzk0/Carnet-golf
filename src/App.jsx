@@ -3,9 +3,7 @@ import GolfTracker from './GolfTracker.jsx'
 
 function App() {
   return (
-    <AuthGate>
-      <GolfTracker />
-    </AuthGate>
+    <AuthGate>{(session) => <GolfTracker userEmail={session.user.email} />}</AuthGate>
   )
 }
 

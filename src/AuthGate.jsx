@@ -126,7 +126,7 @@ export default function AuthGate({ children }) {
       >
         <LogOut size={16} />
       </button>
-      {children}
+      {typeof children === 'function' ? children(session) : children}
     </div>
   )
 }
