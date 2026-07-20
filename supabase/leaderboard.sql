@@ -55,7 +55,12 @@ with (security_invoker = false)
 as
 select
   rc.owner_id,
-  coalesce(nullif(trim(us.username), ''), split_part(u.email, '@', 1)) as display_name,
+  -- Pas d'email ici : contrairement à un premier essai, cette vue ne référence plus du
+  -- tout auth.users (l'avertissement "Exposed Auth Users" du security advisor Supabase
+  -- était fondé — même limité à un préfixe d'email, ça n'avait pas sa place dans une vue
+  -- accessible à tous). Sans pseudo choisi, on retombe sur un nom générique + un bout
+  -- d'identifiant, jamais sur une donnée d'auth.users.
+  coalesce(nullif(trim(us.username), ''), 'Joueur ' || substr(rc.owner_id::text, 1, 4)) as display_name,
   rc.rounds_played,
   rc.avg_differential,
   lh.fir_pct,
@@ -74,7 +79,6 @@ from (
   where complete = true
   group by owner_id
 ) rc
-join auth.users u on u.id = rc.owner_id
 left join public.user_settings us on us.owner_id = rc.owner_id
 left join (
   select
