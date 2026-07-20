@@ -160,7 +160,9 @@ create table if not exists public.shots (
   side_end text,
   penalite text,
   progression text,
-  trajectoire text
+  trajectoire text,
+  is_chip boolean not null default false,
+  chip_dist text
 );
 
 alter table public.shots enable row level security;
