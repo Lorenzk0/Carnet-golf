@@ -13,9 +13,19 @@ alter table public.user_settings add column if not exists username text;
 -- Vue interne (non exposée à l'API) : un trou joué = une ligne, avec le nombre de coups
 -- et la zone d'arrivée du premier coup, dénormalisés depuis rounds.holes (jsonb) et
 -- shots. Sert uniquement de brique pour la vue `leaderboard` ci-dessous.
--- ------------------------------------------------------------
+--
+-- security_invoker = false (et non true comme dans une première version) : une vue
+-- security_invoker=true réappliquerait le RLS de `rounds`/`shots` selon L'UTILISATEUR
+-- QUI CONSULTE LE CLASSEMENT, pas selon le propriétaire de chaque ligne — quand Alice
+-- regarde le classement, elle ne verrait alors QUE ses propres trous ici, et les stats
+-- détaillées (fairways/greens/putts/scrambling) de Bob resteraient vides pour elle,
+-- même si le nombre de parties et le différentiel de Bob (calculés ailleurs, sans
+-- passer par cette vue) s'affichaient correctement. Vérifié et reproduit sur une base
+-- de test avant correction. Le blocage d'accès direct (revoke ci-dessous) suffit
+-- comme protection — inutile d'ajouter un security_invoker=true qui casse la fonction
+-- de la vue sans rien protéger de plus.
 create or replace view public.leaderboard_holes
-with (security_invoker = true)
+with (security_invoker = false)
 as
 select
   r.owner_id,
