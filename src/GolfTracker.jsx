@@ -1592,7 +1592,7 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
   const [allRounds, setAllRounds] = useState([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [tab, setTab] = useState("apercu"); // apercu | petit-jeu
+  const [tab, setTab] = useState("apercu"); // apercu | clubs | jeu | petit-jeu | putting | parcours | penalites
 
   useEffect(() => {
     (async () => {
@@ -1854,6 +1854,16 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
   const totalPenaltiesAll = penaltyCountsAll.reduce((s, p) => s + p.count, 0);
   const penaltiesPerRound = playedRounds.length ? totalPenaltiesAll / playedRounds.length : 0;
 
+  // Origine des pénalités : zone de départ et club du coup fautif (celui qui a pris la pénalité).
+  const penaltiesByZone = zoneNames
+    .map((zone) => ({ zone, count: allShots.filter((s) => s.penalite && s.zoneStart === zone).length }))
+    .filter((z) => z.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const penaltiesByClub = clubNames
+    .map((club) => ({ club, count: allShots.filter((s) => s.penalite && s.club === club).length }))
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count);
+
   return (
     <div className="min-h-screen bg-stone-50 pb-10">
       <div className="bg-emerald-900 text-white px-5 pt-8 pb-6 flex items-center gap-3">
@@ -1868,13 +1878,268 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
 
       <div className="flex gap-2 px-5 pt-4 flex-wrap">
         <Pill active={tab === "apercu"} onClick={() => setTab("apercu")}>Vue d'ensemble</Pill>
+        <Pill active={tab === "clubs"} onClick={() => setTab("clubs")}>Clubs</Pill>
+        <Pill active={tab === "jeu"} onClick={() => setTab("jeu")}>Jeu</Pill>
         <Pill active={tab === "petit-jeu"} onClick={() => setTab("petit-jeu")}>Petit jeu</Pill>
+        <Pill active={tab === "putting"} onClick={() => setTab("putting")}>Putting</Pill>
+        <Pill active={tab === "parcours"} onClick={() => setTab("parcours")}>Parcours</Pill>
+        <Pill active={tab === "penalites"} onClick={() => setTab("penalites")}>Pénalités</Pill>
       </div>
 
       {tab === "petit-jeu" ? (
         <div className="p-5 space-y-5">
           {filterBar}
           <PetitJeuTab rounds={rounds} />
+        </div>
+      ) : tab === "clubs" ? (
+        <div className="p-5 space-y-5">
+          {filterBar}
+
+          {byClub.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Par club</div>
+              <p className="text-xs text-stone-400 mb-3">Du club le mieux frappé au moins bien frappé, toutes parties confondues.</p>
+              <div className="space-y-3">
+                {byClub.map((c) => (
+                  <div key={c.club}>
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-semibold">{c.club} <span className="text-stone-400 font-normal">({c.count})</span></span>
+                      <span className="text-stone-400">{Math.round(c.score * 100)}/100</span>
+                    </div>
+                    <ContactBar counts={c.counts} total={c.count} />
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-stone-400">
+                      <span>sans gain/recul {Math.round((c.noGain / c.count) * 100)}%</span>
+                      {c.penalties > 0 && <span className="text-red-600">pénalités {c.penalties}</span>}
+                      {c.domTraj && <span>traj. {c.domTraj}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <ContactLegend />
+            </div>
+          )}
+
+          {landingByClub.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Zones de réception par club</div>
+              <p className="text-xs text-stone-400 mb-3">Du club qui place le mieux la balle au moins bon.</p>
+              <div className="space-y-3">
+                {landingByClub.map((c) => (
+                  <div key={c.club}>
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-semibold">{c.club} <span className="text-stone-400 font-normal">({c.count})</span></span>
+                      <span className="text-stone-400">{Math.round(c.score * 100)}/100</span>
+                    </div>
+                    <LandingBar counts={c.counts} total={c.count} />
+                    {c.roughSides.length > 0 && (
+                      <div className="text-xs text-stone-400 mt-1">
+                        rough : {c.roughSides.map((s) => `${s.side} ${s.count}`).join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <LandingLegend />
+            </div>
+          )}
+        </div>
+      ) : tab === "jeu" ? (
+        <div className="p-5 space-y-5">
+          {filterBar}
+
+          {teeLandingAll.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Réception des coups de départ ({teeShotsAll.length})</div>
+              <div className="flex flex-wrap gap-2">
+                {teeLandingAll.map((t) => (
+                  <span key={t.z} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
+                    {t.z} <span className="font-semibold">{t.count}</span> <span className="text-stone-400">({Math.round((t.count / teeShotsAll.length) * 100)}%)</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {byZone.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Par zone de départ du coup</div>
+              <p className="text-xs text-stone-400 mb-3">De la zone la mieux jouée à la moins bien jouée. Roughs gauche et droite regroupés.</p>
+              <div className="space-y-3">
+                {byZone.map((z) => (
+                  <div key={z.zone}>
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="font-semibold">{z.zone} <span className="text-stone-400 font-normal">({z.count})</span></span>
+                      <span className="text-stone-400">{Math.round(z.score * 100)}/100</span>
+                    </div>
+                    <ContactBar counts={z.counts} total={z.count} />
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-stone-400">
+                      <span className="text-emerald-700">avancé nettement {Math.round((z.wellAdvanced / z.count) * 100)}%</span>
+                      <span className="text-red-600">sans gain/recul {Math.round((z.noGain / z.count) * 100)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <ContactLegend />
+              {bySide.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-stone-100">
+                  <div className="text-xs text-stone-400 mb-1">Sorties de rough par côté (% sans gain / recul)</div>
+                  <div className="flex flex-wrap gap-2">
+                    {bySide.map((s) => (
+                      <span key={s.side} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
+                        {s.side} : {Math.round((s.noGain / s.count) * 100)}% <span className="text-stone-400">({s.count})</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : tab === "putting" ? (
+        <div className="p-5 space-y-5">
+          {filterBar}
+
+          <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
+            <div className="text-xs font-semibold text-stone-500 uppercase">Putting global</div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-stone-50 rounded-xl py-2">
+                <div className="text-lg font-bold">{avgPuttsAll.toFixed(2)}</div>
+                <div className="text-xs text-stone-400">putts/trou</div>
+              </div>
+              <div className="bg-stone-50 rounded-xl py-2">
+                <div className="text-lg font-bold">{onePuttsAll}</div>
+                <div className="text-xs text-stone-400">1-putt</div>
+              </div>
+              <div className="bg-stone-50 rounded-xl py-2">
+                <div className="text-lg font-bold">{threePuttsAll}</div>
+                <div className="text-xs text-stone-400">3-putts et +</div>
+              </div>
+            </div>
+            {puttsByDistAll.length > 0 && (
+              <div>
+                <div className="text-xs text-stone-400 mb-1">Réussite selon la distance du 1er putt</div>
+                <div className="flex flex-wrap gap-2">
+                  {puttsByDistAll.map((p) => (
+                    <span key={p.d} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">{p.d} : {p.oneOff}/{p.count} en 1</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {puttDistHistogram.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Répartition des putts par distance</div>
+              <p className="text-xs text-stone-400 mb-2">
+                Nombre de trous par distance du 1er putt, réparti selon le nombre de putts joués.
+                {holesWithoutPuttDist > 0 && ` ${holesWithoutPuttDist} trou${holesWithoutPuttDist > 1 ? "s" : ""} sans distance renseignée, non repris ici.`}
+              </p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={puttDistHistogram} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                  <XAxis dataKey="d" tick={{ fontSize: 10 }} interval={0} />
+                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  {activePuttCats.map((c) => (
+                    <Bar key={c.key} dataKey={c.key} name={c.label} stackId="p" fill={c.color} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      ) : tab === "parcours" ? (
+        <div className="p-5 space-y-5">
+          {filterBar}
+
+          {byCourse.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Par parcours</div>
+              <table className="w-full text-xs">
+                <thead className="text-stone-400 uppercase">
+                  <tr>
+                    <th className="p-1 text-left">Parcours</th>
+                    <th className="p-1">Parties</th>
+                    <th className="p-1">Trous</th>
+                    <th className="p-1">Écart/trou</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byCourse.map((c) => (
+                    <tr key={c.name} className="border-t border-stone-100">
+                      <td className="p-1 font-medium">{c.name}</td>
+                      <td className="p-1 text-center">{c.nbRounds}</td>
+                      <td className="p-1 text-center">{c.nbHoles}</td>
+                      <td className="p-1 text-center font-semibold">{c.ecartTrou >= 0 ? "+" : ""}{c.ecartTrou.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {blackHoles.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Trous noirs récurrents</div>
+              <div className="space-y-1">
+                {blackHoles.map((h) => (
+                  <div key={`${h.courseName}-${h.numero}`} className="flex justify-between text-xs border-b border-stone-100 pb-1">
+                    <span>{h.courseName} · trou {h.numero} (par {h.par})</span>
+                    <span className="font-semibold text-red-600">+{h.avgEcart.toFixed(1)} <span className="text-stone-400 font-normal">({h.ecarts.length}×)</span></span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-stone-400 mt-2">Trous joués au moins 2 fois, classés par écart moyen au par.</p>
+            </div>
+          )}
+        </div>
+      ) : tab === "penalites" ? (
+        <div className="p-5 space-y-5">
+          {filterBar}
+
+          {totalPenaltiesAll > 0 ? (
+            <>
+              <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-2">
+                <div className="text-xs font-semibold text-stone-500 uppercase">Pénalités ({totalPenaltiesAll} · {penaltiesPerRound.toFixed(1)}/partie)</div>
+                <div className="flex flex-wrap gap-2">
+                  {penaltyCountsAll.map((p) => (
+                    <span key={p.v} className="text-xs bg-red-50 text-red-700 rounded-full px-2.5 py-1">{p.v} <span className="font-semibold">{p.count}</span></span>
+                  ))}
+                </div>
+              </div>
+
+              {penaltiesByZone.length > 0 && (
+                <div className="bg-white rounded-2xl border border-stone-200 p-4">
+                  <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Origine par zone de départ</div>
+                  <p className="text-xs text-stone-400 mb-3">Zone de départ du coup ayant pris une pénalité, toutes parties confondues.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {penaltiesByZone.map((z) => (
+                      <span key={z.zone} className="text-xs bg-red-50 text-red-700 rounded-full px-2.5 py-1">
+                        {z.zone} <span className="font-semibold">{z.count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {penaltiesByClub.length > 0 && (
+                <div className="bg-white rounded-2xl border border-stone-200 p-4">
+                  <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Origine par club</div>
+                  <p className="text-xs text-stone-400 mb-3">Club utilisé sur le coup ayant pris une pénalité.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {penaltiesByClub.map((c) => (
+                      <span key={c.club} className="text-xs bg-red-50 text-red-700 rounded-full px-2.5 py-1">
+                        {c.club} <span className="font-semibold">{c.count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-stone-400 text-sm">Aucune pénalité enregistrée sur cette période.</p>
+          )}
         </div>
       ) : (
       <div className="p-5 space-y-5">
@@ -1967,204 +2232,6 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
                   <div className="text-lg font-bold">{p.avg.toFixed(1)}</div>
                   <div className="text-xs text-stone-400">{(p.avg - p.par >= 0 ? "+" : "")}{(p.avg - p.par).toFixed(1)}</div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {teeLandingAll.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Réception des coups de départ ({teeShotsAll.length})</div>
-            <div className="flex flex-wrap gap-2">
-              {teeLandingAll.map((t) => (
-                <span key={t.z} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
-                  {t.z} <span className="font-semibold">{t.count}</span> <span className="text-stone-400">({Math.round((t.count / teeShotsAll.length) * 100)}%)</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {byClub.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Par club</div>
-            <p className="text-xs text-stone-400 mb-3">Du club le mieux frappé au moins bien frappé, toutes parties confondues.</p>
-            <div className="space-y-3">
-              {byClub.map((c) => (
-                <div key={c.club}>
-                  <div className="flex justify-between text-xs mb-0.5">
-                    <span className="font-semibold">{c.club} <span className="text-stone-400 font-normal">({c.count})</span></span>
-                    <span className="text-stone-400">{Math.round(c.score * 100)}/100</span>
-                  </div>
-                  <ContactBar counts={c.counts} total={c.count} />
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-stone-400">
-                    <span>sans gain/recul {Math.round((c.noGain / c.count) * 100)}%</span>
-                    {c.penalties > 0 && <span className="text-red-600">pénalités {c.penalties}</span>}
-                    {c.domTraj && <span>traj. {c.domTraj}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <ContactLegend />
-          </div>
-        )}
-
-        {landingByClub.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Zones de réception par club</div>
-            <p className="text-xs text-stone-400 mb-3">Du club qui place le mieux la balle au moins bon.</p>
-            <div className="space-y-3">
-              {landingByClub.map((c) => (
-                <div key={c.club}>
-                  <div className="flex justify-between text-xs mb-0.5">
-                    <span className="font-semibold">{c.club} <span className="text-stone-400 font-normal">({c.count})</span></span>
-                    <span className="text-stone-400">{Math.round(c.score * 100)}/100</span>
-                  </div>
-                  <LandingBar counts={c.counts} total={c.count} />
-                  {c.roughSides.length > 0 && (
-                    <div className="text-xs text-stone-400 mt-1">
-                      rough : {c.roughSides.map((s) => `${s.side} ${s.count}`).join(" · ")}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <LandingLegend />
-          </div>
-        )}
-
-        {byZone.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Par zone de départ du coup</div>
-            <p className="text-xs text-stone-400 mb-3">De la zone la mieux jouée à la moins bien jouée. Roughs gauche et droite regroupés.</p>
-            <div className="space-y-3">
-              {byZone.map((z) => (
-                <div key={z.zone}>
-                  <div className="flex justify-between text-xs mb-0.5">
-                    <span className="font-semibold">{z.zone} <span className="text-stone-400 font-normal">({z.count})</span></span>
-                    <span className="text-stone-400">{Math.round(z.score * 100)}/100</span>
-                  </div>
-                  <ContactBar counts={z.counts} total={z.count} />
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-stone-400">
-                    <span className="text-emerald-700">avancé nettement {Math.round((z.wellAdvanced / z.count) * 100)}%</span>
-                    <span className="text-red-600">sans gain/recul {Math.round((z.noGain / z.count) * 100)}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <ContactLegend />
-            {bySide.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-stone-100">
-                <div className="text-xs text-stone-400 mb-1">Sorties de rough par côté (% sans gain / recul)</div>
-                <div className="flex flex-wrap gap-2">
-                  {bySide.map((s) => (
-                    <span key={s.side} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
-                      {s.side} : {Math.round((s.noGain / s.count) * 100)}% <span className="text-stone-400">({s.count})</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {byCourse.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Par parcours</div>
-            <table className="w-full text-xs">
-              <thead className="text-stone-400 uppercase">
-                <tr>
-                  <th className="p-1 text-left">Parcours</th>
-                  <th className="p-1">Parties</th>
-                  <th className="p-1">Trous</th>
-                  <th className="p-1">Écart/trou</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byCourse.map((c) => (
-                  <tr key={c.name} className="border-t border-stone-100">
-                    <td className="p-1 font-medium">{c.name}</td>
-                    <td className="p-1 text-center">{c.nbRounds}</td>
-                    <td className="p-1 text-center">{c.nbHoles}</td>
-                    <td className="p-1 text-center font-semibold">{c.ecartTrou >= 0 ? "+" : ""}{c.ecartTrou.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {blackHoles.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-2">Trous noirs récurrents</div>
-            <div className="space-y-1">
-              {blackHoles.map((h) => (
-                <div key={`${h.courseName}-${h.numero}`} className="flex justify-between text-xs border-b border-stone-100 pb-1">
-                  <span>{h.courseName} · trou {h.numero} (par {h.par})</span>
-                  <span className="font-semibold text-red-600">+{h.avgEcart.toFixed(1)} <span className="text-stone-400 font-normal">({h.ecarts.length}×)</span></span>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-stone-400 mt-2">Trous joués au moins 2 fois, classés par écart moyen au par.</p>
-          </div>
-        )}
-
-        <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
-          <div className="text-xs font-semibold text-stone-500 uppercase">Putting global</div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="bg-stone-50 rounded-xl py-2">
-              <div className="text-lg font-bold">{avgPuttsAll.toFixed(2)}</div>
-              <div className="text-xs text-stone-400">putts/trou</div>
-            </div>
-            <div className="bg-stone-50 rounded-xl py-2">
-              <div className="text-lg font-bold">{onePuttsAll}</div>
-              <div className="text-xs text-stone-400">1-putt</div>
-            </div>
-            <div className="bg-stone-50 rounded-xl py-2">
-              <div className="text-lg font-bold">{threePuttsAll}</div>
-              <div className="text-xs text-stone-400">3-putts et +</div>
-            </div>
-          </div>
-          {puttsByDistAll.length > 0 && (
-            <div>
-              <div className="text-xs text-stone-400 mb-1">Réussite selon la distance du 1er putt</div>
-              <div className="flex flex-wrap gap-2">
-                {puttsByDistAll.map((p) => (
-                  <span key={p.d} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">{p.d} : {p.oneOff}/{p.count} en 1</span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {puttDistHistogram.length > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Répartition des putts par distance</div>
-            <p className="text-xs text-stone-400 mb-2">
-              Nombre de trous par distance du 1er putt, réparti selon le nombre de putts joués.
-              {holesWithoutPuttDist > 0 && ` ${holesWithoutPuttDist} trou${holesWithoutPuttDist > 1 ? "s" : ""} sans distance renseignée, non repris ici.`}
-            </p>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={puttDistHistogram} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                <XAxis dataKey="d" tick={{ fontSize: 10 }} interval={0} />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
-                {activePuttCats.map((c) => (
-                  <Bar key={c.key} dataKey={c.key} name={c.label} stackId="p" fill={c.color} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {totalPenaltiesAll > 0 && (
-          <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-2">
-            <div className="text-xs font-semibold text-stone-500 uppercase">Pénalités ({totalPenaltiesAll} · {penaltiesPerRound.toFixed(1)}/partie)</div>
-            <div className="flex flex-wrap gap-2">
-              {penaltyCountsAll.map((p) => (
-                <span key={p.v} className="text-xs bg-red-50 text-red-700 rounded-full px-2.5 py-1">{p.v} <span className="font-semibold">{p.count}</span></span>
               ))}
             </div>
           </div>
