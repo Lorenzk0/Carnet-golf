@@ -161,6 +161,8 @@ async function getRound(id) {
       penalite: s.penalite,
       progression: s.progression,
       trajectoire: s.trajectoire,
+      isChip: s.is_chip,
+      chipDist: s.chip_dist,
     })
     shotsByHole.set(s.hole_numero, list)
   }
@@ -216,6 +218,8 @@ async function saveRound(round) {
       penalite: s.penalite,
       progression: s.progression,
       trajectoire: s.trajectoire,
+      is_chip: !!s.isChip,
+      chip_dist: s.chipDist,
     }))
   )
   if (shotRows.length) {

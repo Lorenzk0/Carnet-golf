@@ -29,6 +29,20 @@ const PENALTIES = [
 // un contact "correct" peut ne faire avancer la balle que de peu si le lie était mauvais.
 const PROGRESS = ["Avancé nettement", "Avancé un peu", "Sans gain", "Recul"];
 const TRAJECTORY = ["Droit", "Fade", "Draw", "Slice", "Hook"];
+// Chip = coup d'approche court et roulé (trajectoire basse, la balle roule sur une
+// bonne partie du trajet), à distinguer d'un coup plein dans les stats. Zones où c'est
+// ambigu (peut être un vrai coup plein) : l'utilisateur tranche via une case à cocher.
+// Départ/Bunker/Eau/Hors-limite : jamais un chip (club/technique différents — le bunker
+// est déjà couvert par le scrambling). Avant-green : chip par définition, automatique.
+const CHIP_ZONES = ["Fairway", "Rough"];
+// Toutes les zones de départ possibles d'un chip (checkbox + automatique), pour les
+// statistiques du tableau de bord — CHIP_ZONES seul ne couvre que les zones où une
+// case est affichée.
+const CHIP_START_ZONES = ["Fairway", "Rough", "Avant-green"];
+const CHIP_DIST = ["<5m", "5-10m", "10-20m", "20-30m", ">30m"];
+function defaultChipFor(zone) {
+  return zone === "Avant-green";
+}
 // worst -> best. `c` = pastille de saisie, `bar` = couleur pleine pour les barres empilées.
 const CONTACTS = [
   { v: "Topé", c: "bg-red-100 border-red-300 text-red-800", bar: "bg-red-500" },
@@ -237,7 +251,7 @@ export default function GolfTracker({ userEmail }) {
   const [roundsIndex, setRoundsIndex] = useState([]);
   const [round, setRound] = useState(null);
   const [holeIdx, setHoleIdx] = useState(0);
-  const [draft, setDraft] = useState({ zoneStart: "Départ", sideStart: null, club: null, contact: null, zoneEnd: null, sideEnd: null, penalite: null, progression: null, trajectoire: null });
+  const [draft, setDraft] = useState({ zoneStart: "Départ", sideStart: null, club: null, contact: null, zoneEnd: null, sideEnd: null, penalite: null, progression: null, trajectoire: null, isChip: false, chipDist: null });
   const [loaded, setLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [customClubs, setCustomClubs] = useState([]);
@@ -373,17 +387,7 @@ export default function GolfTracker({ userEmail }) {
     setRound(newRound);
     saveRound(newRound);
     const origin = nextShotOrigin(shot);
-    setDraft({
-      zoneStart: origin.zoneStart,
-      sideStart: origin.sideStart,
-      club: null,
-      contact: null,
-      zoneEnd: null,
-      sideEnd: null,
-      penalite: null,
-      progression: null,
-      trajectoire: null,
-    });
+    setDraft(emptyDraft(origin));
   }
 
   function removeLastShot() {
@@ -395,7 +399,7 @@ export default function GolfTracker({ userEmail }) {
     const newRound = { ...round, holes: newHoles };
     setRound(newRound);
     saveRound(newRound);
-    setDraft({ zoneStart: origin.zoneStart, sideStart: origin.sideStart, club: null, contact: null, zoneEnd: null, sideEnd: null, penalite: null, progression: null, trajectoire: null });
+    setDraft(emptyDraft(origin));
   }
 
   function setPutts(count, dist) {
@@ -425,7 +429,7 @@ export default function GolfTracker({ userEmail }) {
     return nextShotOrigin(hole.shots[hole.shots.length - 1]);
   }
   function emptyDraft(origin) {
-    return { zoneStart: origin.zoneStart, sideStart: origin.sideStart, club: null, contact: null, zoneEnd: null, sideEnd: null, penalite: null, progression: null, trajectoire: null };
+    return { zoneStart: origin.zoneStart, sideStart: origin.sideStart, club: null, contact: null, zoneEnd: null, sideEnd: null, penalite: null, progression: null, trajectoire: null, isChip: defaultChipFor(origin.zoneStart), chipDist: null };
   }
 
   function goToHole(idx) {
@@ -861,7 +865,11 @@ export default function GolfTracker({ userEmail }) {
                 <div key={i} className="bg-white border border-stone-200 rounded-lg px-2 py-1 text-xs">
                   <span className="font-semibold">{s.club}</span> · {s.zoneStart}{s.sideStart ? ` (${s.sideStart})` : ""} → {s.zoneEnd}{s.sideEnd ? ` (${s.sideEnd})` : ""} · {s.contact}
                   {s.progression && <span className="ml-1 text-stone-400">· {s.progression}</span>}
-                  {s.trajectoire && <span className="ml-1 text-stone-400">· {s.trajectoire}</span>}
+                  {s.isChip ? (
+                    <span className="ml-1 text-stone-400">· Chip{s.chipDist ? ` (${s.chipDist})` : ""}</span>
+                  ) : (
+                    s.trajectoire && <span className="ml-1 text-stone-400">· {s.trajectoire}</span>
+                  )}
                   {s.penalite && <span className="ml-1 text-red-600 font-semibold">⚠ {s.penalite} (+1)</span>}
                 </div>
               ))}
@@ -875,7 +883,21 @@ export default function GolfTracker({ userEmail }) {
                 <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Zone de départ du coup</div>
                 <div className="flex flex-wrap gap-2">
                   {["Départ", ...ZONES.filter((z) => z !== "Green")].map((z) => (
-                    <Pill key={z} active={draft.zoneStart === z} onClick={() => setDraft({ ...draft, zoneStart: z, sideStart: z === "Rough" ? draft.sideStart : null })}>{z}</Pill>
+                    <Pill
+                      key={z}
+                      active={draft.zoneStart === z}
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          zoneStart: z,
+                          sideStart: z === "Rough" ? draft.sideStart : null,
+                          isChip: defaultChipFor(z),
+                          chipDist: null,
+                        })
+                      }
+                    >
+                      {z}
+                    </Pill>
                   ))}
                 </div>
                 {draft.zoneStart === "Rough" && (
@@ -911,14 +933,42 @@ export default function GolfTracker({ userEmail }) {
                 </div>
               </div>
 
-              <div>
-                <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Trajectoire</div>
-                <div className="flex flex-wrap gap-2">
-                  {TRAJECTORY.map((t) => (
-                    <Pill key={t} active={draft.trajectoire === t} onClick={() => setDraft({ ...draft, trajectoire: t })}>{t}</Pill>
-                  ))}
+              {CHIP_ZONES.includes(draft.zoneStart) && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={draft.isChip}
+                      onChange={(e) => setDraft({ ...draft, isChip: e.target.checked, chipDist: e.target.checked ? draft.chipDist : null })}
+                      className="w-4 h-4"
+                    />
+                    Chip (coup roulé)
+                  </label>
                 </div>
-              </div>
+              )}
+              {draft.zoneStart === "Avant-green" && (
+                <p className="text-xs text-stone-400 -mt-2">Chip automatique depuis l'avant-green.</p>
+              )}
+
+              {draft.isChip ? (
+                <div>
+                  <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Distance du chip</div>
+                  <div className="flex flex-wrap gap-2">
+                    {CHIP_DIST.map((d) => (
+                      <Pill key={d} active={draft.chipDist === d} onClick={() => setDraft({ ...draft, chipDist: d })}>{d}</Pill>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Trajectoire</div>
+                  <div className="flex flex-wrap gap-2">
+                    {TRAJECTORY.map((t) => (
+                      <Pill key={t} active={draft.trajectoire === t} onClick={() => setDraft({ ...draft, trajectoire: t })}>{t}</Pill>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Zone d'arrivée</div>
@@ -1542,6 +1592,7 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
   const [allRounds, setAllRounds] = useState([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [tab, setTab] = useState("apercu"); // apercu | petit-jeu
 
   useEffect(() => {
     (async () => {
@@ -1815,6 +1866,17 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
         </div>
       </div>
 
+      <div className="flex gap-2 px-5 pt-4 flex-wrap">
+        <Pill active={tab === "apercu"} onClick={() => setTab("apercu")}>Vue d'ensemble</Pill>
+        <Pill active={tab === "petit-jeu"} onClick={() => setTab("petit-jeu")}>Petit jeu</Pill>
+      </div>
+
+      {tab === "petit-jeu" ? (
+        <div className="p-5 space-y-5">
+          {filterBar}
+          <PetitJeuTab rounds={rounds} />
+        </div>
+      ) : (
       <div className="p-5 space-y-5">
         {filterBar}
 
@@ -2112,7 +2174,179 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
           <p className="text-xs text-stone-400">La courbe de progression apparaîtra dès que tu auras au moins 2 parties avec des trous saisis.</p>
         )}
       </div>
+      )}
     </div>
+  );
+}
+
+// "Petit jeu" (chipping) : agrège les coups isChip=true de toutes les parties de la
+// période retenue (déjà filtrée par DashboardScreen). computePetitJeu() calcule,
+// PetitJeuTab() affiche — un bloc par statistique, masqué s'il n'y a rien à montrer.
+function computePetitJeu(rounds) {
+  const chipEvents = [];
+  for (const r of rounds) {
+    for (const h of r.holes) {
+      h.shots.forEach((s, idx) => {
+        if (s.isChip) {
+          chipEvents.push({ shot: s, isLastShotOfHole: idx === h.shots.length - 1, hole: h });
+        }
+      });
+    }
+  }
+
+  const byZone = CHIP_START_ZONES.map((zone) => {
+    const evs = chipEvents.filter((e) => e.shot.zoneStart === zone);
+    if (!evs.length) return null;
+    const hit = evs.filter((e) => e.shot.zoneEnd === "Green").length;
+    return { zone, count: evs.length, pct: Math.round((hit / evs.length) * 1000) / 10 };
+  }).filter(Boolean);
+
+  const withDist = chipEvents.filter((e) => e.shot.chipDist);
+  const noDistCount = chipEvents.length - withDist.length;
+  const byDist = CHIP_DIST.map((d) => {
+    const evs = withDist.filter((e) => e.shot.chipDist === d);
+    if (!evs.length) return null;
+    const hit = evs.filter((e) => e.shot.zoneEnd === "Green").length;
+    return { d, count: evs.length, pct: Math.round((hit / evs.length) * 1000) / 10 };
+  }).filter(Boolean);
+
+  const clubNames = [...new Set(chipEvents.map((e) => e.shot.club).filter(Boolean))];
+  const byClub = clubNames
+    .map((club) => {
+      const evs = chipEvents.filter((e) => e.shot.club === club);
+      const hit = evs.filter((e) => e.shot.zoneEnd === "Green").length;
+      return { club, count: evs.length, pct: Math.round((hit / evs.length) * 1000) / 10 };
+    })
+    .sort((a, b) => b.count - a.count);
+
+  // Chips ayant atteint le green ET derniers coups enregistrés du trou : les putts qui
+  // suivent leur sont donc attribuables sans ambiguïté (pas de coup intermédiaire).
+  const successfulLastChips = chipEvents.filter(
+    (e) => e.shot.zoneEnd === "Green" && e.isLastShotOfHole && e.hole.putts
+  );
+
+  const puttsAfterChip = [
+    { label: "1 putt", count: successfulLastChips.filter((e) => e.hole.putts.count <= 1).length },
+    { label: "2 putts", count: successfulLastChips.filter((e) => e.hole.putts.count === 2).length },
+    { label: "3 putts et +", count: successfulLastChips.filter((e) => e.hole.putts.count >= 3).length },
+  ].filter((c) => c.count > 0);
+
+  const firstPuttDistByZone = CHIP_START_ZONES.map((zone) => {
+    const evs = successfulLastChips.filter((e) => e.shot.zoneStart === zone && e.hole.putts.firstPuttDist);
+    if (!evs.length) return null;
+    const counts = PUTT_DIST.map((d) => ({ d, count: evs.filter((e) => e.hole.putts.firstPuttDist === d).length })).filter((c) => c.count > 0);
+    return { zone, total: evs.length, counts };
+  }).filter(Boolean);
+
+  return {
+    totalChips: chipEvents.length,
+    byZone,
+    byDist,
+    noDistCount,
+    byClub,
+    puttsAfterChip,
+    successfulLastChipsCount: successfulLastChips.length,
+    firstPuttDistByZone,
+  };
+}
+
+function PetitJeuTab({ rounds }) {
+  const stats = computePetitJeu(rounds);
+
+  if (stats.totalChips === 0) {
+    return (
+      <p className="text-stone-400 text-sm">
+        Aucun chip enregistré sur cette période — coche "Chip" (ou joue depuis l'avant-green) lors de la saisie d'un coup pour le voir apparaître ici.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {stats.byZone.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-2">% green touché du 1er coup, par zone de départ</div>
+          <div className="flex gap-3">
+            {stats.byZone.map((z) => (
+              <div key={z.zone} className="flex-1 text-center bg-stone-50 rounded-xl py-2">
+                <div className="text-xs text-stone-400">{z.zone}</div>
+                <div className="text-lg font-bold">{z.pct}%</div>
+                <div className="text-xs text-stone-400">{z.count} chip{z.count > 1 ? "s" : ""}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.byDist.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1">% green touché par distance du chip</div>
+          {stats.noDistCount > 0 && (
+            <p className="text-xs text-stone-400 mb-2">
+              {stats.noDistCount} chip{stats.noDistCount > 1 ? "s" : ""} sans distance renseignée, exclu{stats.noDistCount > 1 ? "s" : ""} ici.
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {stats.byDist.map((d) => (
+              <span key={d.d} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">
+                {d.d} : <span className="font-semibold">{d.pct}%</span> <span className="text-stone-400">({d.count})</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.byClub.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Clubs utilisés au chip</div>
+          <p className="text-xs text-stone-400 mb-3">Du plus utilisé au moins utilisé.</p>
+          <div className="space-y-2">
+            {stats.byClub.map((c) => (
+              <div key={c.club} className="flex items-center justify-between text-sm">
+                <span className="font-semibold">{c.club} <span className="text-stone-400 font-normal text-xs">({c.count})</span></span>
+                <span className="text-stone-500 text-xs">{c.pct}% green touché</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.puttsAfterChip.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Putts après un chip réussi</div>
+          <p className="text-xs text-stone-400 mb-3">
+            Chips ayant atteint le green du 1er coup, quand c'est le dernier coup avant de putter ({stats.successfulLastChipsCount}).
+          </p>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {stats.puttsAfterChip.map((p) => (
+              <div key={p.label} className="bg-stone-50 rounded-xl py-2">
+                <div className="text-lg font-bold">{p.count}</div>
+                <div className="text-xs text-stone-400">{p.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.firstPuttDistByZone.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Distance laissée au 1er putt après un chip réussi</div>
+          <p className="text-xs text-stone-400 mb-3">Par zone de départ du chip.</p>
+          <div className="space-y-3">
+            {stats.firstPuttDistByZone.map((z) => (
+              <div key={z.zone}>
+                <div className="text-xs font-semibold mb-1">{z.zone} ({z.total})</div>
+                <div className="flex flex-wrap gap-2">
+                  {z.counts.map((c) => (
+                    <span key={c.d} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">{c.d} <span className="font-semibold">{c.count}</span></span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
