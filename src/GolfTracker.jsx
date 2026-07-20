@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Flag, ChevronRight, ChevronLeft, Plus, Trash2, Copy, Check, Home, X, BarChart3, Trophy } from "lucide-react";
+import { Flag, ChevronRight, ChevronLeft, Plus, Trash2, Copy, Check, Home, X, BarChart3, Trophy, Save, MapPin } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { storeGet, storeSet, storeDelete } from "./lib/storage.js";
+import { version as pkgVersion } from "../package.json";
 
 // Les parcours (partagés + privés par utilisateur) vivent désormais dans Supabase
 // (table `courses`, voir supabase/schema.sql) plutôt qu'en dur ici. `customCourses`
@@ -12,9 +13,9 @@ import { storeGet, storeSet, storeDelete } from "./lib/storage.js";
 const COURSES = [];
 const HOLES_RAW = {};
 
-// Change ce numéro à chaque mise à jour livrée — affiché sur l'accueil pour vérifier
-// en un coup d'œil qu'une republication a bien pris effet.
-const APP_VERSION = "v34 · consultation/modification des slope & CR";
+// Version de l'app (package.json), affichée sur l'accueil pour vérifier en un coup
+// d'œil qu'une republication a bien pris effet.
+const APP_VERSION = `v${pkgVersion}`;
 
 const CLUBS = ["D", "4h", "5i", "6i", "7i", "8i", "9i", "Pw", "Gw", "Sw", "Putter", "?"];
 const ZONES = ["Fairway", "Rough", "Bunker", "Avant-green", "Green", "Hors-limite", "Eau"];
@@ -741,15 +742,40 @@ export default function GolfTracker({ userEmail }) {
             </div>
             <h1 className="text-2xl font-bold">Carnet de coups</h1>
           </div>
-          <div className="flex flex-col items-end gap-0.5">
-            {userEmail && <div className="text-emerald-300/70 text-xs mb-1">{userEmail}</div>}
-            <button onClick={() => setScreen("dashboard")} className="text-emerald-200 text-xs underline">Tableau de bord</button>
-            <button onClick={() => setScreen("leaderboard")} className="text-emerald-200 text-xs underline">Classement</button>
-            <button onClick={() => { setSettingsTab("backup"); setScreen("settings"); }} className="text-emerald-200 text-xs underline">Sauvegarde</button>
-            <button onClick={() => { setSettingsTab("clubs"); setScreen("settings"); }} className="text-emerald-200 text-xs underline">Parcours &amp; clubs</button>
-          </div>
+          {userEmail && <div className="text-emerald-300/70 text-xs">{userEmail}</div>}
         </div>
         <div className="p-5">
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            <button
+              onClick={() => setScreen("dashboard")}
+              className="flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-stone-200 py-3 text-stone-700 active:bg-stone-100 transition"
+            >
+              <BarChart3 size={20} />
+              <span className="text-xs text-center leading-tight">Tableau de bord</span>
+            </button>
+            <button
+              onClick={() => setScreen("leaderboard")}
+              className="flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-stone-200 py-3 text-stone-700 active:bg-stone-100 transition"
+            >
+              <Trophy size={20} />
+              <span className="text-xs text-center leading-tight">Classement</span>
+            </button>
+            <button
+              onClick={() => { setSettingsTab("backup"); setScreen("settings"); }}
+              className="flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-stone-200 py-3 text-stone-700 active:bg-stone-100 transition"
+            >
+              <Save size={20} />
+              <span className="text-xs text-center leading-tight">Sauvegarde</span>
+            </button>
+            <button
+              onClick={() => { setSettingsTab("clubs"); setScreen("settings"); }}
+              className="flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-stone-200 py-3 text-stone-700 active:bg-stone-100 transition"
+            >
+              <MapPin size={20} />
+              <span className="text-xs text-center leading-tight">Parcours &amp; clubs</span>
+            </button>
+          </div>
+
           <button
             onClick={startSetup}
             className="w-full bg-amber-600 text-white rounded-2xl py-4 font-semibold text-lg flex items-center justify-center gap-2 active:scale-95 transition mb-6"
