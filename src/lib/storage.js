@@ -59,8 +59,26 @@ async function getUserSettings() {
   const { data, error } = await supabase.from('user_settings').select('*').maybeSingle()
   if (error) throw error
   return (
-    data || { custom_clubs: [], hole_overrides: {}, rating_overrides: {} }
+    data || { custom_clubs: [], hole_overrides: {}, rating_overrides: {}, username: null }
   )
+}
+
+async function getLeaderboard() {
+  const { data, error } = await supabase
+    .from('leaderboard')
+    .select('*')
+    .order('rounds_played', { ascending: false })
+  if (error) throw error
+  return data.map((r) => ({
+    ownerId: r.owner_id,
+    displayName: r.display_name,
+    roundsPlayed: r.rounds_played,
+    avgDifferential: r.avg_differential,
+    firPct: r.fir_pct,
+    girPct: r.gir_pct,
+    avgPutts: r.avg_putts,
+    scramblingPct: r.scrambling_pct,
+  }))
 }
 
 async function patchUserSettings(patch) {
@@ -231,6 +249,8 @@ async function performGet(key) {
   if (key === 'custom-courses') return await getAllCourses()
   if (key === 'hole-overrides') return (await getUserSettings()).hole_overrides
   if (key === 'rating-overrides') return (await getUserSettings()).rating_overrides
+  if (key === 'username') return (await getUserSettings()).username
+  if (key === 'leaderboard') return await getLeaderboard()
   if (key.startsWith('round:')) return await getRound(key.slice('round:'.length))
   return null
 }
@@ -241,6 +261,7 @@ async function performSet(key, value) {
   if (key === 'custom-courses') return await syncCourses(value)
   if (key === 'hole-overrides') return await patchUserSettings({ hole_overrides: value })
   if (key === 'rating-overrides') return await patchUserSettings({ rating_overrides: value })
+  if (key === 'username') return await patchUserSettings({ username: value })
   if (key.startsWith('round:')) return await saveRound(value)
 }
 
