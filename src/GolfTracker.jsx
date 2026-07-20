@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Flag, ChevronRight, ChevronLeft, Plus, Trash2, Copy, Check, Home, X, BarChart3 } from "lucide-react";
+import { Flag, ChevronRight, ChevronLeft, Plus, Trash2, Copy, Check, Home, X, BarChart3, Trophy } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { storeGet, storeSet, storeDelete } from "./lib/storage.js";
 
@@ -244,6 +244,7 @@ export default function GolfTracker({ userEmail }) {
   const [customCourses, setCustomCourses] = useState([]);
   const [holeOverrides, setHoleOverrides] = useState({});
   const [ratingOverrides, setRatingOverrides] = useState({});
+  const [username, setUsername] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -252,14 +253,21 @@ export default function GolfTracker({ userEmail }) {
       const co = (await storeGet("custom-courses")) || [];
       const ho = (await storeGet("hole-overrides")) || {};
       const ro = (await storeGet("rating-overrides")) || {};
+      const un = await storeGet("username");
       setRoundsIndex(idx);
       setCustomClubs(cc);
       setCustomCourses(co);
       setHoleOverrides(ho);
       setRatingOverrides(ro);
+      setUsername(un);
       setLoaded(true);
     })();
   }, []);
+
+  async function saveUsername(name) {
+    setUsername(name);
+    await storeSet("username", name);
+  }
 
   const allCourses = [...COURSES, ...customCourses];
   const allClubs = [...CLUBS.slice(0, -1), ...customClubs, "?"];
@@ -732,6 +740,7 @@ export default function GolfTracker({ userEmail }) {
           <div className="flex flex-col items-end gap-0.5">
             {userEmail && <div className="text-emerald-300/70 text-xs mb-1">{userEmail}</div>}
             <button onClick={() => setScreen("dashboard")} className="text-emerald-200 text-xs underline">Tableau de bord</button>
+            <button onClick={() => setScreen("leaderboard")} className="text-emerald-200 text-xs underline">Classement</button>
             <button onClick={() => { setSettingsTab("backup"); setScreen("settings"); }} className="text-emerald-200 text-xs underline">Sauvegarde</button>
             <button onClick={() => { setSettingsTab("clubs"); setScreen("settings"); }} className="text-emerald-200 text-xs underline">Parcours &amp; clubs</button>
           </div>
@@ -778,6 +787,11 @@ export default function GolfTracker({ userEmail }) {
   // ---------------- DASHBOARD ----------------
   if (screen === "dashboard") {
     return <DashboardScreen onBack={() => setScreen("home")} fetchAllRounds={fetchAllRounds} roundCount={roundsIndex.length} />;
+  }
+
+  // ---------------- LEADERBOARD ----------------
+  if (screen === "leaderboard") {
+    return <LeaderboardScreen onBack={() => setScreen("home")} username={username} onSaveUsername={saveUsername} />;
   }
 
   // ---------------- SETTINGS ----------------
@@ -2097,6 +2111,134 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
         {playedRounds.length < 2 && (
           <p className="text-xs text-stone-400">La courbe de progression apparaîtra dès que tu auras au moins 2 parties avec des trous saisis.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Tri des lignes du classement : les valeurs manquantes (ex. pas encore de partie
+// notée pour le différentiel) sont toujours reléguées en fin de liste, quel que soit
+// le sens du tri.
+const LEADERBOARD_SORTS = {
+  roundsPlayed: { label: "Parties", dir: "desc" },
+  avgDifferential: { label: "Différentiel", dir: "asc" },
+  firPct: { label: "Fairways", dir: "desc" },
+  girPct: { label: "Greens", dir: "desc" },
+  avgPutts: { label: "Putts", dir: "asc" },
+  scramblingPct: { label: "Scrambling", dir: "desc" },
+};
+
+function leaderboardFmt(v, suffix = "") {
+  return v === null || v === undefined ? "—" : `${v}${suffix}`;
+}
+
+function LeaderboardScreen({ onBack, username, onSaveUsername }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [sortKey, setSortKey] = useState("roundsPlayed");
+  const [nameInput, setNameInput] = useState(username || "");
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const data = await storeGet("leaderboard");
+      setRows(data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    setNameInput(username || "");
+  }, [username]);
+
+  const sorted = [...rows].sort((a, b) => {
+    const { dir } = LEADERBOARD_SORTS[sortKey];
+    const av = a[sortKey];
+    const bv = b[sortKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return dir === "asc" ? av - bv : bv - av;
+  });
+
+  async function saveName() {
+    await onSaveUsername(nameInput.trim() || null);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1500);
+  }
+
+  return (
+    <div className="min-h-screen bg-stone-50 pb-10">
+      <div className="bg-emerald-900 text-white px-5 pt-8 pb-6 flex items-center gap-3">
+        <button onClick={onBack}><X size={22} /></button>
+        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> Classement</h1>
+      </div>
+
+      <div className="p-5 space-y-5">
+        <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-2">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Ton pseudo</div>
+          <div className="flex gap-2">
+            <input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Comme tu veux apparaître dans le classement"
+              className="flex-1 border border-stone-300 rounded-lg px-3 py-2"
+            />
+            <button onClick={saveName} className="bg-emerald-900 text-white rounded-lg px-4 font-semibold whitespace-nowrap">
+              {savedFlash ? "Enregistré ✓" : "Enregistrer"}
+            </button>
+          </div>
+          <p className="text-xs text-stone-400">Visible des autres joueurs. Laisse vide pour afficher le début de ton email à la place.</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(LEADERBOARD_SORTS).map(([key, { label }]) => (
+            <Pill key={key} active={sortKey === key} onClick={() => setSortKey(key)} className="px-3 py-1.5 text-xs">
+              {label}
+            </Pill>
+          ))}
+        </div>
+
+        {loading && <p className="text-stone-400 text-sm">Chargement…</p>}
+        {!loading && sorted.length === 0 && (
+          <p className="text-stone-400 text-sm">Personne n'a encore terminé de partie — le classement apparaîtra dès la première partie complète.</p>
+        )}
+
+        <div className="space-y-2">
+          {sorted.map((r, i) => (
+            <div key={r.ownerId} className="bg-white rounded-2xl border border-stone-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-semibold flex items-center gap-2">
+                  <span className="text-stone-400 text-sm w-5">{i + 1}</span>
+                  {r.displayName}
+                </div>
+                <div className="text-xs text-stone-400">{r.roundsPlayed} partie{r.roundsPlayed > 1 ? "s" : ""}</div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-stone-50 rounded-xl py-2">
+                  <div className="text-sm font-bold">{leaderboardFmt(r.avgDifferential)}</div>
+                  <div className="text-[10px] text-stone-400 uppercase">Différentiel</div>
+                </div>
+                <div className="bg-stone-50 rounded-xl py-2">
+                  <div className="text-sm font-bold">{leaderboardFmt(r.firPct, "%")}</div>
+                  <div className="text-[10px] text-stone-400 uppercase">Fairways</div>
+                </div>
+                <div className="bg-stone-50 rounded-xl py-2">
+                  <div className="text-sm font-bold">{leaderboardFmt(r.girPct, "%")}</div>
+                  <div className="text-[10px] text-stone-400 uppercase">Greens</div>
+                </div>
+                <div className="bg-stone-50 rounded-xl py-2">
+                  <div className="text-sm font-bold">{leaderboardFmt(r.avgPutts)}</div>
+                  <div className="text-[10px] text-stone-400 uppercase">Putts</div>
+                </div>
+                <div className="bg-stone-50 rounded-xl py-2 col-span-2">
+                  <div className="text-sm font-bold">{leaderboardFmt(r.scramblingPct, "%")}</div>
+                  <div className="text-[10px] text-stone-400 uppercase">Scrambling</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
