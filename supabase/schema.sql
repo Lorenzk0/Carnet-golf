@@ -34,16 +34,19 @@ create policy "courses_insert_own" on public.courses
   for insert to authenticated
   with check (owner_id = auth.uid());
 
+-- update/delete relâchés à "owner_id null OU auth.uid()" : usage privé entre
+-- quelques personnes, tout utilisateur authentifié peut modifier/supprimer
+-- n'importe quel parcours, y compris les parcours partagés (pas seulement les siens).
 drop policy if exists "courses_update_own" on public.courses;
 create policy "courses_update_own" on public.courses
   for update to authenticated
-  using (owner_id = auth.uid())
-  with check (owner_id = auth.uid());
+  using (owner_id is null or owner_id = auth.uid())
+  with check (owner_id is null or owner_id = auth.uid());
 
 drop policy if exists "courses_delete_own" on public.courses;
 create policy "courses_delete_own" on public.courses
   for delete to authenticated
-  using (owner_id = auth.uid());
+  using (owner_id is null or owner_id = auth.uid());
 
 -- ------------------------------------------------------------
 -- HOLES : par/hcp de chaque trou d'un parcours (partagé ou privé).
@@ -75,19 +78,19 @@ drop policy if exists "holes_insert_own_course" on public.holes;
 create policy "holes_insert_own_course" on public.holes
   for insert to authenticated
   with check (
-    exists (select 1 from public.courses c where c.id = holes.course_id and c.owner_id = auth.uid())
+    exists (select 1 from public.courses c where c.id = holes.course_id and (c.owner_id is null or c.owner_id = auth.uid()))
   );
 
 drop policy if exists "holes_update_own_course" on public.holes;
 create policy "holes_update_own_course" on public.holes
   for update to authenticated
-  using (exists (select 1 from public.courses c where c.id = holes.course_id and c.owner_id = auth.uid()))
-  with check (exists (select 1 from public.courses c where c.id = holes.course_id and c.owner_id = auth.uid()));
+  using (exists (select 1 from public.courses c where c.id = holes.course_id and (c.owner_id is null or c.owner_id = auth.uid())))
+  with check (exists (select 1 from public.courses c where c.id = holes.course_id and (c.owner_id is null or c.owner_id = auth.uid())));
 
 drop policy if exists "holes_delete_own_course" on public.holes;
 create policy "holes_delete_own_course" on public.holes
   for delete to authenticated
-  using (exists (select 1 from public.courses c where c.id = holes.course_id and c.owner_id = auth.uid()));
+  using (exists (select 1 from public.courses c where c.id = holes.course_id and (c.owner_id is null or c.owner_id = auth.uid())));
 
 -- ------------------------------------------------------------
 -- USER_SETTINGS : réglages perso (clubs ajoutés, corrections de

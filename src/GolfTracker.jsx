@@ -230,6 +230,20 @@ function emptyRatings() {
   });
   return o;
 }
+// Inverse d'emptyRatings() : projette le ratings.jsonb brut d'un parcours existant
+// dans la grille du formulaire d'édition, pour pré-remplir en modifiant un parcours.
+function ratingsToFormState(ratings) {
+  const o = emptyRatings();
+  if (ratings) {
+    Object.entries(ratings).forEach(([cfg, tees]) => {
+      if (!o[cfg]) return;
+      Object.entries(tees).forEach(([k, v]) => {
+        o[cfg][k] = { slope: v.slope ?? "", sss: v.sss ?? "" };
+      });
+    });
+  }
+  return o;
+}
 
 function Pill({ active, onClick, children, className = "" }) {
   return (
@@ -298,6 +312,17 @@ export default function GolfTracker({ userEmail }) {
     const next = [...customCourses, course];
     setCustomCourses(next);
     await storeSet("custom-courses", next);
+  }
+
+  async function updateCourse(course) {
+    const next = customCourses.map((c) => (c.id === course.id ? course : c));
+    setCustomCourses(next);
+    await storeSet("custom-courses", next);
+  }
+
+  async function deleteCourse(id) {
+    await storeDelete(`course:${id}`);
+    setCustomCourses(customCourses.filter((c) => c.id !== id));
   }
 
   async function saveHoleOverride(courseId, numero, par, hcp) {
@@ -834,6 +859,8 @@ export default function GolfTracker({ userEmail }) {
         onAddClub={addCustomClub}
         courses={allCourses}
         onAddCourse={addCustomCourse}
+        onUpdateCourse={updateCourse}
+        onDeleteCourse={deleteCourse}
         onSaveOverride={saveHoleOverride}
         ratingOverrides={ratingOverrides}
         onSaveRating={saveRatingOverride}
@@ -2602,7 +2629,7 @@ function LeaderboardScreen({ onBack, username, onSaveUsername }) {
   );
 }
 
-function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddCourse, onSaveOverride, ratingOverrides, onSaveRating, onResetRating, customCourses, coursHoles, holeOverrides, onExportAllJSON, onExportAllCSV, onImportBackup, onImportCSV, roundCount, initialTab }) {
+function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddCourse, onUpdateCourse, onDeleteCourse, onSaveOverride, ratingOverrides, onSaveRating, onResetRating, customCourses, coursHoles, holeOverrides, onExportAllJSON, onExportAllCSV, onImportBackup, onImportCSV, roundCount, initialTab }) {
   const [tab, setTab] = useState(initialTab || "clubs"); // clubs | course | override | ratings | backup
   const [newClub, setNewClub] = useState("");
 
@@ -2611,6 +2638,8 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
   const [holeSpecs, setHoleSpecs] = useState(Array.from({ length: 9 }, (_, i) => ({ numero: i + 1, par: 4, hcp: i + 1 })));
   const [courseRatings, setCourseRatings] = useState(emptyRatings());
   const [ratingCfg, setRatingCfg] = useState("9 trous");
+  const [editCourseId, setEditCourseId] = useState(null); // null = création d'un nouveau parcours
+  const [confirmDeleteCourse, setConfirmDeleteCourse] = useState(false);
 
   const [ovCourseId, setOvCourseId] = useState(null);
   const [ovHole, setOvHole] = useState(1);
@@ -2656,17 +2685,66 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
       });
       if (Object.keys(tees).length) ratings[cfg] = tees;
     });
-    onAddCourse({
-      id: `custom-${uid()}`,
+    const course = {
+      id: editCourseId || `custom-${uid()}`,
       nom: courseName.trim(),
       nb: courseNb,
       holes: holeSpecs,
       ratings: Object.keys(ratings).length ? ratings : null,
-    });
+    };
+    if (editCourseId) {
+      // Reste en mode édition sur ce même parcours après une modification (contrairement à
+      // la création, où on veut repartir d'un formulaire vide) : l'utilisateur peut avoir
+      // encore besoin de le supprimer ou d'ajuster autre chose juste après avoir sauvegardé.
+      onUpdateCourse(course);
+    } else {
+      onAddCourse(course);
+      resetCourseForm();
+    }
+  }
+
+  function resetCourseForm() {
+    setEditCourseId(null);
+    setConfirmDeleteCourse(false);
     setCourseName("");
+    setCourseNb(9);
+    setHoleSpecs(Array.from({ length: 9 }, (_, i) => ({ numero: i + 1, par: 4, hcp: i + 1 })));
     setCourseRatings(emptyRatings());
     setRatingCfg("9 trous");
-    resizeHoles(9);
+  }
+
+  // Bascule le formulaire "course" en mode édition d'un parcours existant (ou revient
+  // en mode création si id est null) : pré-remplit avec les valeurs BASE du parcours
+  // (pas les corrections personnelles de override/ratings, qu'on ne touche pas ici).
+  function selectCourseToEdit(id) {
+    setConfirmDeleteCourse(false);
+    setEditCourseId(id);
+    if (!id) {
+      setCourseName("");
+      setCourseNb(9);
+      setHoleSpecs(Array.from({ length: 9 }, (_, i) => ({ numero: i + 1, par: 4, hcp: i + 1 })));
+      setCourseRatings(emptyRatings());
+      setRatingCfg("9 trous");
+      return;
+    }
+    const c = courses.find((x) => x.id === id);
+    if (!c) return;
+    setCourseName(c.nom);
+    setCourseNb(c.nb);
+    setHoleSpecs(
+      Array.from({ length: c.nb }, (_, i) => {
+        const h = (c.holes || []).find((hh) => hh.numero === i + 1);
+        return h ? { numero: h.numero, par: h.par, hcp: h.hcp } : { numero: i + 1, par: 4, hcp: i + 1 };
+      })
+    );
+    setCourseRatings(ratingsToFormState(c.ratings));
+    setRatingCfg(c.nb === 9 ? "9 trous" : "18 trous");
+  }
+
+  function handleDeleteCourse() {
+    if (!editCourseId) return;
+    onDeleteCourse(editCourseId);
+    resetCourseForm();
   }
 
   const [ratCourseId, setRatCourseId] = useState(null);
@@ -2818,6 +2896,16 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
         {tab === "course" && (
           <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-4">
             <div>
+              <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Parcours</div>
+              <p className="text-xs text-stone-400 mb-2">Choisis un parcours existant pour le modifier ou le supprimer, ou reste sur "Nouveau parcours" pour en ajouter un.</p>
+              <div className="flex flex-wrap gap-2">
+                <Pill active={!editCourseId} onClick={() => selectCourseToEdit(null)}>+ Nouveau parcours</Pill>
+                {courses.map((c) => (
+                  <Pill key={c.id} active={editCourseId === c.id} onClick={() => selectCourseToEdit(c.id)}>{c.nom}</Pill>
+                ))}
+              </div>
+            </div>
+            <div>
               <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Nom du parcours</div>
               <input value={courseName} onChange={(e) => setCourseName(e.target.value)} placeholder="Nom" className="w-full border border-stone-300 rounded-lg px-3 py-2" />
             </div>
@@ -2902,19 +2990,38 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
               </div>
             </div>
             <button onClick={saveCourse} disabled={!courseName.trim()} className="w-full bg-amber-600 disabled:bg-stone-300 text-white rounded-xl py-3 font-semibold active:scale-95">
-              Enregistrer le parcours
+              {editCourseId ? "Enregistrer les modifications" : "Enregistrer le parcours"}
             </button>
+
+            {editCourseId && (
+              <div className="pt-3 border-t border-stone-100">
+                {confirmDeleteCourse ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-red-600">
+                      Supprimer définitivement "{courseName}" ? Les parties déjà jouées sur ce parcours garderont leur historique, mais ne seront plus reliées à sa fiche.
+                    </p>
+                    <div className="flex gap-2">
+                      <button onClick={handleDeleteCourse} className="flex-1 bg-red-600 text-white rounded-xl py-2.5 font-semibold text-sm active:scale-95">
+                        Confirmer la suppression
+                      </button>
+                      <button onClick={() => setConfirmDeleteCourse(false)} className="flex-1 bg-stone-100 text-stone-700 rounded-xl py-2.5 font-semibold text-sm active:scale-95">
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDeleteCourse(true)} className="w-full text-red-600 text-sm font-semibold py-2 active:scale-95">
+                    Supprimer ce parcours
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {tab === "override" && (
           <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-4">
             <p className="text-xs text-stone-400">Utile si un parcours change le par ou l'index d'un trou (rénovation, nouveau tracé). Fonctionne aussi bien sur un parcours intégré que sur un parcours ajouté ici.</p>
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-              À corriger : les index (HCP) de <strong>Montgenèvre Chaberton</strong> et <strong>Montgenèvre Compact</strong> sont
-              provisoires, déduits de la longueur des trous faute de carte à jour. Les pars et les slope/CR sont exacts.
-              Seul le Stableford est concerné — corrige-les ici dès que tu auras la carte du club.
-            </p>
             <div>
               <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Parcours</div>
               <div className="flex flex-wrap gap-2">
