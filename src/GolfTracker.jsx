@@ -2961,6 +2961,11 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
                 </>
               )}
               <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-16" />
+                  <span className="w-20 text-xs font-semibold text-stone-400 uppercase">Slope</span>
+                  <span className="w-20 text-xs font-semibold text-stone-400 uppercase">CR / SSS</span>
+                </div>
                 {TEES.map((t) => {
                   const k = t.toLowerCase();
                   const cur = courseRatings[ratingCfg][k];
@@ -2982,7 +2987,7 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
                         value={cur.sss}
                         onChange={(e) => updateRating(ratingCfg, k, "sss", e.target.value)}
                         className="w-20 border border-stone-300 rounded-lg px-2 py-1 text-sm"
-                        placeholder="CR"
+                        placeholder="CR / SSS"
                       />
                     </div>
                   );
@@ -3110,6 +3115,11 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
                     )}
                   </div>
                   <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-16" />
+                      <span className="w-20 text-xs font-semibold text-stone-400 uppercase">Slope</span>
+                      <span className="w-20 text-xs font-semibold text-stone-400 uppercase">CR / SSS</span>
+                    </div>
                     {TEES.map((t) => {
                       const k = t.toLowerCase();
                       const r = ratTees[k] || { slope: "", sss: "" };
@@ -3131,7 +3141,7 @@ function SettingsScreen({ onBack, clubs, customClubs, onAddClub, courses, onAddC
                             value={r.sss}
                             onChange={(e) => updateRatTee(k, "sss", e.target.value)}
                             className="w-20 border border-stone-300 rounded-lg px-2 py-1 text-sm"
-                            placeholder="CR"
+                            placeholder="CR / SSS"
                           />
                           {r.overridden && <span className="text-xs text-amber-700">modifié</span>}
                           {!r.hasBase && !r.overridden && <span className="text-xs text-stone-300">non classé</span>}
