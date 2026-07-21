@@ -103,25 +103,24 @@ async function getAllCourses() {
   }))
 }
 
-// Upsert des parcours PRIVÉS du tableau (addCustomCourse() n'en ajoute qu'un à la fois,
-// mais importBackup() peut en fusionner plusieurs d'un coup). `value` mélange aussi les
-// parcours partagés déjà en base (owner_id null) : contrairement à un UPDATE filtré
-// classique, un UPSERT qui tombe en conflit sur une ligne que la policy RLS refuse lève
-// une erreur (et fait échouer toute la requête, y compris les lignes légitimes) au lieu
-// de l'ignorer silencieusement — donc on exclut les parcours partagés en amont plutôt
-// que de compter sur RLS pour les filtrer. Les parcours ajoutés par l'utilisateur ont
-// tous un id "custom-..." (voir saveCourse() dans GolfTracker.jsx), ce qui suffit à les
-// distinguer sans avoir besoin de connaître owner_id côté client.
+// Upsert de TOUT le tableau de parcours (addCustomCourse()/updateCourse() n'en changent
+// qu'un à la fois, mais importBackup() peut en fusionner plusieurs d'un coup). `value`
+// mélange parcours privés et parcours partagés déjà en base (owner_id null) : les deux
+// sont upsertables désormais (policy RLS "update/delete owner_id is null or auth.uid()",
+// voir supabase/allow-edit-shared-courses.sql) — plus besoin de filtrer en amont comme
+// avant cette policy, où un UPSERT en conflit sur une ligne refusée par RLS aurait fait
+// échouer toute la requête. `courses` ne contient de toute façon jamais que des parcours
+// visibles pour cet utilisateur (select RLS), donc jamais une ligne qu'il ne pourrait pas
+// upserter avec la policy actuelle.
 async function syncCourses(courses) {
-  const own = courses.filter((c) => String(c.id).startsWith('custom-'))
-  if (!own.length) return
+  if (!courses.length) return
 
   const { error: courseErr } = await supabase.from('courses').upsert(
-    own.map((c) => ({ id: c.id, nom: c.nom, nb: c.nb, ratings: c.ratings || null }))
+    courses.map((c) => ({ id: c.id, nom: c.nom, nb: c.nb, ratings: c.ratings || null }))
   )
   if (courseErr) throw courseErr
 
-  const holeRows = own.flatMap((c) =>
+  const holeRows = courses.flatMap((c) =>
     (c.holes || []).map((h) => ({ course_id: c.id, numero: h.numero, par: h.par, hcp: h.hcp }))
   )
   if (holeRows.length) {
@@ -130,6 +129,19 @@ async function syncCourses(courses) {
       .upsert(holeRows, { onConflict: 'course_id,numero' })
     if (holesErr) throw holesErr
   }
+
+  // Purge les trous devenus orphelins si le nombre de trous d'un parcours a été réduit
+  // en le modifiant (ex. 18 -> 9) : sans ça, les trous au-delà du nouveau total
+  // resteraient en base et referaient surface à la prochaine lecture du parcours.
+  for (const c of courses) {
+    const { error: pruneErr } = await supabase.from('holes').delete().eq('course_id', c.id).gt('numero', c.nb)
+    if (pruneErr) throw pruneErr
+  }
+}
+
+async function deleteCourse(id) {
+  const { error } = await supabase.from('courses').delete().eq('id', id)
+  if (error) throw error
 }
 
 async function getRound(id) {
@@ -274,6 +286,7 @@ async function performDelete(key) {
     const { error } = await supabase.from('rounds').delete().eq('id', key.slice('round:'.length))
     if (error) throw error
   }
+  if (key.startsWith('course:')) return await deleteCourse(key.slice('course:'.length))
 }
 
 // Réseau d'abord (comportement inchangé quand il y a du réseau) ; secours sur la
