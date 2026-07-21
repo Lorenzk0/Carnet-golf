@@ -2331,6 +2331,17 @@ function computePetitJeu(rounds) {
     return { zone, total: evs.length, counts };
   }).filter(Boolean);
 
+  const puttClubNames = [...new Set(successfulLastChips.map((e) => e.shot.club).filter(Boolean))];
+  const firstPuttDistByClub = puttClubNames
+    .map((club) => {
+      const evs = successfulLastChips.filter((e) => e.shot.club === club && e.hole.putts.firstPuttDist);
+      if (!evs.length) return null;
+      const counts = PUTT_DIST.map((d) => ({ d, count: evs.filter((e) => e.hole.putts.firstPuttDist === d).length })).filter((c) => c.count > 0);
+      return { club, total: evs.length, counts };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.total - a.total);
+
   return {
     totalChips: chipEvents.length,
     byZone,
@@ -2340,6 +2351,7 @@ function computePetitJeu(rounds) {
     puttsAfterChip,
     successfulLastChipsCount: successfulLastChips.length,
     firstPuttDistByZone,
+    firstPuttDistByClub,
   };
 }
 
@@ -2432,6 +2444,25 @@ function PetitJeuTab({ rounds }) {
                 <div className="flex flex-wrap gap-2">
                   {z.counts.map((c) => (
                     <span key={c.d} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">{c.d} <span className="font-semibold">{c.count}</span></span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.firstPuttDistByClub.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4">
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1">Distance laissée au 1er putt après un chip réussi</div>
+          <p className="text-xs text-stone-400 mb-3">Par club utilisé pour le chip.</p>
+          <div className="space-y-3">
+            {stats.firstPuttDistByClub.map((c) => (
+              <div key={c.club}>
+                <div className="text-xs font-semibold mb-1">{c.club} ({c.total})</div>
+                <div className="flex flex-wrap gap-2">
+                  {c.counts.map((d) => (
+                    <span key={d.d} className="text-xs bg-stone-100 rounded-full px-2.5 py-1">{d.d} <span className="font-semibold">{d.count}</span></span>
                   ))}
                 </div>
               </div>
