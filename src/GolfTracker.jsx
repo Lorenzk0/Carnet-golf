@@ -2685,18 +2685,43 @@ function LeaderboardScreen({ onBack, username, onSaveUsername }) {
   const [sortKey, setSortKey] = useState("roundsPlayed");
   const [nameInput, setNameInput] = useState(username || "");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
   useEffect(() => {
+    setLoading(true);
     (async () => {
-      const data = await storeGet("leaderboard");
+      const data = await storeGet(`leaderboard:${from}:${to}`);
       setRows(data || []);
       setLoading(false);
     })();
-  }, []);
+  }, [from, to]);
 
   useEffect(() => {
     setNameInput(username || "");
   }, [username]);
+
+  function applyPreset(preset) {
+    const now = new Date();
+    const iso = (d) => d.toISOString().slice(0, 10);
+    if (preset === "all") {
+      setFrom("");
+      setTo("");
+    } else if (preset === "12m") {
+      const d = new Date(now);
+      d.setFullYear(d.getFullYear() - 1);
+      setFrom(iso(d));
+      setTo(iso(now));
+    } else if (preset === "year") {
+      setFrom(`${now.getFullYear()}-01-01`);
+      setTo(iso(now));
+    } else if (preset === "3m") {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 3);
+      setFrom(iso(d));
+      setTo(iso(now));
+    }
+  }
 
   const sorted = [...rows].sort((a, b) => {
     const { dir } = LEADERBOARD_SORTS[sortKey];
@@ -2738,6 +2763,22 @@ function LeaderboardScreen({ onBack, username, onSaveUsername }) {
           <p className="text-xs text-stone-400">Visible des autres joueurs. Laisse vide pour afficher le début de ton email à la place.</p>
         </div>
 
+        <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
+          <div className="text-xs font-semibold text-stone-500 uppercase">Période</div>
+          <div className="flex flex-wrap gap-2">
+            <Pill active={!from && !to} onClick={() => applyPreset("all")}>Tout</Pill>
+            <Pill active={false} onClick={() => applyPreset("3m")}>3 mois</Pill>
+            <Pill active={false} onClick={() => applyPreset("12m")}>12 mois</Pill>
+            <Pill active={false} onClick={() => applyPreset("year")}>Année en cours</Pill>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <label className="text-stone-400">Du</label>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border border-stone-300 rounded-lg px-2 py-1" />
+            <label className="text-stone-400">au</label>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border border-stone-300 rounded-lg px-2 py-1" />
+          </div>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           {Object.entries(LEADERBOARD_SORTS).map(([key, { label }]) => (
             <Pill key={key} active={sortKey === key} onClick={() => setSortKey(key)} className="px-3 py-1.5 text-xs">
@@ -2748,7 +2789,11 @@ function LeaderboardScreen({ onBack, username, onSaveUsername }) {
 
         {loading && <p className="text-stone-400 text-sm">Chargement…</p>}
         {!loading && sorted.length === 0 && (
-          <p className="text-stone-400 text-sm">Personne n'a encore terminé de partie — le classement apparaîtra dès la première partie complète.</p>
+          <p className="text-stone-400 text-sm">
+            {from || to
+              ? "Personne n'a terminé de partie sur cette période — élargis les dates ci-dessus."
+              : "Personne n'a encore terminé de partie — le classement apparaîtra dès la première partie complète."}
+          </p>
         )}
 
         <div className="space-y-2">
