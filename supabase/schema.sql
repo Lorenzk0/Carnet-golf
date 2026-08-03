@@ -103,6 +103,7 @@ create table if not exists public.user_settings (
   custom_clubs jsonb not null default '[]'::jsonb,
   hole_overrides jsonb not null default '{}'::jsonb,
   rating_overrides jsonb not null default '{}'::jsonb,
+  handicap_index numeric,
   updated_at timestamptz not null default now()
 );
 
