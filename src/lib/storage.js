@@ -59,7 +59,7 @@ async function getUserSettings() {
   const { data, error } = await supabase.from('user_settings').select('*').maybeSingle()
   if (error) throw error
   return (
-    data || { custom_clubs: [], hole_overrides: {}, rating_overrides: {}, username: null }
+    data || { custom_clubs: [], hole_overrides: {}, rating_overrides: {}, username: null, handicap_index: null }
   )
 }
 
@@ -266,6 +266,7 @@ async function performGet(key) {
   if (key === 'hole-overrides') return (await getUserSettings()).hole_overrides
   if (key === 'rating-overrides') return (await getUserSettings()).rating_overrides
   if (key === 'username') return (await getUserSettings()).username
+  if (key === 'handicap-index') return (await getUserSettings()).handicap_index
   if (key === 'leaderboard') return await getLeaderboard()
   if (key.startsWith('round:')) return await getRound(key.slice('round:'.length))
   return null
@@ -278,6 +279,7 @@ async function performSet(key, value) {
   if (key === 'hole-overrides') return await patchUserSettings({ hole_overrides: value })
   if (key === 'rating-overrides') return await patchUserSettings({ rating_overrides: value })
   if (key === 'username') return await patchUserSettings({ username: value })
+  if (key === 'handicap-index') return await patchUserSettings({ handicap_index: value })
   if (key.startsWith('round:')) return await saveRound(value)
 }
 

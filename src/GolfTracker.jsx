@@ -140,11 +140,38 @@ function rotate(arr, startNum) {
 }
 function strokesRecu(holeHcp, ph, total) {
   const base = Math.floor(ph / total);
-  const rest = ph % total;
+  // Reste toujours positif (comme Python divmod), pas `ph % total` : l'opérateur % de JS
+  // garde le signe du dividende, ce qui casserait la répartition pour un handicap de jeu
+  // négatif (joueur meilleur que scratch, coups rendus AU parcours).
+  const rest = ph - base * total;
   return base + (holeHcp <= rest ? 1 : 0);
 }
 function stableford(strokesNet, par) {
   return Math.max(0, 2 - (strokesNet - par));
+}
+// Arrondi WHS (moitié à l'écart de zéro) : Math.round arrondit -0.5 vers 0 au lieu de -1,
+// ce qui ne suit pas la convention WHS pour un index négatif (meilleur que scratch).
+function roundHalfAwayFromZero(x) {
+  return x >= 0 ? Math.floor(x + 0.5) : -Math.floor(-x + 0.5);
+}
+// Handicap de jeu WHS (coups rendus au total) à partir de l'index du joueur (stable,
+// indépendant du parcours), du slope/CR du départ joué et du par total des trous
+// réellement joués. Sur 9 trous, seule la moitié de l'index compte.
+function handicapJeu(index, slope, cr, par, nbTrous) {
+  const facteur = nbTrous === 9 ? index / 2 : index;
+  return roundHalfAwayFromZero(facteur * (slope / 113) + (cr - par));
+}
+// Score ajusté WHS (SBA) : chaque trou plafonné au double bogey net (par + 2 + coups
+// rendus de CE trou), condition du calcul officiel du différentiel — un score brut non
+// plafonné gonflerait le différentiel sur un trou catastrophique.
+function scoreAjusteTrou(par, brut, rendus) {
+  return Math.min(brut, par + 2 + rendus);
+}
+function totalScoreAjuste(holes, ph, totalHolesRef) {
+  return holes.reduce((s, h) => {
+    const rendus = strokesRecu(h.hcp, ph, totalHolesRef);
+    return s + scoreAjusteTrou(h.par, holeStrokes(h), rendus);
+  }, 0);
 }
 // Score réel du trou = coups swingués + coups fictifs de pénalité + putts.
 function holeStrokes(hole) {
@@ -274,6 +301,7 @@ export default function GolfTracker({ userEmail }) {
   const [holeOverrides, setHoleOverrides] = useState({});
   const [ratingOverrides, setRatingOverrides] = useState({});
   const [username, setUsername] = useState(null);
+  const [handicapIndex, setHandicapIndex] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -283,12 +311,14 @@ export default function GolfTracker({ userEmail }) {
       const ho = (await storeGet("hole-overrides")) || {};
       const ro = (await storeGet("rating-overrides")) || {};
       const un = await storeGet("username");
+      const hi = await storeGet("handicap-index");
       setRoundsIndex(idx);
       setCustomClubs(cc);
       setCustomCourses(co);
       setHoleOverrides(ho);
       setRatingOverrides(ro);
       setUsername(un);
+      setHandicapIndex(hi);
       setLoaded(true);
     })();
   }, []);
@@ -296,6 +326,11 @@ export default function GolfTracker({ userEmail }) {
   async function saveUsername(name) {
     setUsername(name);
     await storeSet("username", name);
+  }
+
+  async function saveHandicapIndex(value) {
+    setHandicapIndex(value);
+    await storeSet("handicap-index", value);
   }
 
   const allCourses = [...COURSES, ...customCourses];
@@ -371,7 +406,7 @@ export default function GolfTracker({ userEmail }) {
     setScreen("setup");
   }
 
-  function beginRound({ courseId, courseName, nbToPlay, startHole, ph, date, tee }) {
+  function beginRound({ courseId, courseName, nbToPlay, startHole, index, date, tee }) {
     let holes = coursHoles(courseId, customCourses, holeOverrides);
     if (courseId) holes = rotate(holes, startHole).slice(0, nbToPlay);
     else {
@@ -381,6 +416,13 @@ export default function GolfTracker({ userEmail }) {
     const ratingRow = courseId ? findRating(courseId, courseNb, nbToPlay, holes[0]?.numero, customCourses, ratingOverrides) : null;
     const teeKey = tee ? tee.toLowerCase() : "bleus";
     const teeRating = ratingRow && ratingRow[teeKey] && ratingRow[teeKey].slope && ratingRow[teeKey].sss ? ratingRow[teeKey] : null;
+    // Handicap de jeu WHS dérivé de l'index (voir handicapJeu()) : sans slope/CR connu
+    // pour ce départ, calcul neutre (slope 113, CR = par) plutôt que de bloquer la saisie.
+    // Index vide -> aucun coup rendu (0), plutôt que de deviner une valeur.
+    const par = holes.reduce((s, h) => s + h.par, 0);
+    const ph = index !== null && index !== undefined
+      ? handicapJeu(index, teeRating ? teeRating.slope : 113, teeRating ? teeRating.sss : par, par, nbToPlay)
+      : 0;
     const r = {
       id: uid(),
       date,
@@ -719,9 +761,12 @@ export default function GolfTracker({ userEmail }) {
 
   function buildCSV(r) {
     const maxShots = Math.max(1, ...r.holes.map((h) => h.shots.length));
-    const totalStrokesAll = r.holes.reduce((s, h) => s + holeStrokes(h), 0);
-    const differential = r.rating ? Math.round(((totalStrokesAll - r.rating.sss) * 113) / r.rating.slope * 10) / 10 : "";
-    const cols = ["Date", "Parcours", "Trou", "Par", "HCP", "Score_brut", "Score_net", "Écart_par", "Points_Stableford", "Handicap_jeu", "Trous_ref_parcours", "Depart", "Slope", "CR", "Differentiel_indicatif"];
+    // Différentiel WHS : basé sur le score ajusté (SBA, chaque trou plafonné au double
+    // bogey net), pas le score brut — voir totalScoreAjuste().
+    const scoreAjusteAll = totalScoreAjuste(r.holes, r.ph, r.totalHolesRef);
+    const differential = r.rating ? Math.round(((scoreAjusteAll - r.rating.sss) * 113) / r.rating.slope * 10) / 10 : "";
+    const differentialCol = r.totalHolesRef === 9 ? "Differentiel_9T" : "Differentiel_indicatif";
+    const cols = ["Date", "Parcours", "Trou", "Par", "HCP", "Score_brut", "Score_net", "Écart_par", "Points_Stableford", "Handicap_jeu", "Trous_ref_parcours", "Depart", "Slope", "CR", differentialCol];
     for (let i = 1; i <= maxShots; i++) {
       cols.push(`Coup${i}_club`, `Coup${i}_situation`, `Coup${i}_qualite`, `Coup${i}_penalite`, `Coup${i}_progression`, `Coup${i}_trajectoire`);
     }
@@ -836,7 +881,17 @@ export default function GolfTracker({ userEmail }) {
 
   // ---------------- SETUP ----------------
   if (screen === "setup") {
-    return <SetupScreen onBack={() => setScreen("home")} onStart={beginRound} customCourses={customCourses} />;
+    return (
+      <SetupScreen
+        onBack={() => setScreen("home")}
+        onStart={beginRound}
+        customCourses={customCourses}
+        holeOverrides={holeOverrides}
+        ratingOverrides={ratingOverrides}
+        handicapIndex={handicapIndex}
+        onSaveHandicapIndex={saveHandicapIndex}
+      />
+    );
   }
 
   // ---------------- DASHBOARD ----------------
@@ -1132,7 +1187,10 @@ export default function GolfTracker({ userEmail }) {
     const firHit = par4plus.filter((h) => h.shots[0]?.zoneEnd === "Fairway").length;
     const girHit = round.holes.filter((h) => h.putts && h.shots.length <= h.par - 2).length;
     const scrambles = round.holes.filter((h) => h.putts && h.shots.length > h.par - 2 && holeStrokes(h) <= h.par);
-    const differential = round.rating ? Math.round(((totalStrokes - round.rating.sss) * 113) / round.rating.slope * 10) / 10 : null;
+    // Différentiel WHS : basé sur le score ajusté (SBA, chaque trou plafonné au double
+    // bogey net), pas le score brut — voir totalScoreAjuste().
+    const scoreAjuste = totalScoreAjuste(round.holes, round.ph, round.totalHolesRef);
+    const differential = round.rating ? Math.round(((scoreAjuste - round.rating.sss) * 113) / round.rating.slope * 10) / 10 : null;
 
     // Par type de trou (3/4/5)
     const byParType = [3, 4, 5].map((par) => {
@@ -1220,12 +1278,12 @@ export default function GolfTracker({ userEmail }) {
             <Stat label="Scrambles" value={scrambles.length} />
             <Stat label="Putts" value={round.holes.reduce((s, h) => s + (h.putts?.count || 0), 0)} />
             {differential !== null && (
-              <Stat label="Différentiel (indicatif)" value={differential} sub={`slope ${round.rating.slope} · CR ${round.rating.sss}`} />
+              <Stat label={`Différentiel${round.totalHolesRef === 9 ? " 9T" : ""} (indicatif)`} value={differential} sub={`slope ${round.rating.slope} · CR ${round.rating.sss}`} />
             )}
           </div>
           {differential !== null && (
             <p className="text-xs text-stone-400 -mt-2">
-              Indicatif seulement : calculé sur le score brut sans plafonnement type "net double bogey" ni ajustement 9 trous officiel — ne remplace pas un différentiel WHS validé par un marqueur.
+              Indicatif seulement : calculé selon la méthode WHS (score ajusté, plafond double bogey net) à partir des slope/CR renseignés pour ce parcours — ne remplace pas un différentiel validé par un marqueur officiel.
             </p>
           )}
 
@@ -1541,17 +1599,38 @@ function PuttsCard({ onSave }) {
   );
 }
 
-function SetupScreen({ onBack, onStart, customCourses }) {
+function SetupScreen({ onBack, onStart, customCourses, holeOverrides = {}, ratingOverrides = {}, handicapIndex, onSaveHandicapIndex }) {
   const [courseId, setCourseId] = useState(null);
   const [customName, setCustomName] = useState("");
   const [nb, setNb] = useState(9);
   const [startHole, setStartHole] = useState(1);
-  const [ph, setPh] = useState(44);
+  const [index, setIndex] = useState(handicapIndex != null ? String(handicapIndex) : "");
   const [tee, setTee] = useState("Bleus");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
 
   const allCourses = [...COURSES, ...customCourses];
   const course = allCourses.find((c) => c.id === courseId);
+  // Un parcours 9 trous ne peut pas être joué "en 18" dans le modèle actuel (les trous
+  // sont identifiés par numéro unique par partie, donc jouer les mêmes 9 trous deux fois
+  // n'est pas représentable) : pour un 18 trous complet à un club 9 trous, enregistrer
+  // deux parties de 9 trous séparées plutôt qu'une partie 18 trous ambiguë.
+  const nbOptions = !course || course.nb === 18 ? [9, 18] : [9];
+
+  // Trous réellement joués pour la configuration choisie, et handicap de jeu prévisionnel
+  // qui en découle — même logique que beginRound(), pour que l'aperçu affiché corresponde
+  // exactement à ce qui sera enregistré.
+  let previewHoles = coursHoles(courseId, customCourses, holeOverrides);
+  if (courseId) previewHoles = rotate(previewHoles, startHole).slice(0, nb);
+  else previewHoles = Array.from({ length: nb }, (_, i) => ({ numero: i + 1, par: 4, hcp: i + 1 }));
+  const previewPar = previewHoles.reduce((s, h) => s + h.par, 0);
+  const previewCourseNb = courseId ? (course?.nb || nb) : nb;
+  const previewRatingRow = courseId ? findRating(courseId, previewCourseNb, nb, previewHoles[0]?.numero, customCourses, ratingOverrides) : null;
+  const previewTeeKey = tee ? tee.toLowerCase() : "bleus";
+  const previewTeeRating = previewRatingRow && previewRatingRow[previewTeeKey] && previewRatingRow[previewTeeKey].slope && previewRatingRow[previewTeeKey].sss ? previewRatingRow[previewTeeKey] : null;
+  const indexNum = index === "" ? null : Number(index);
+  const previewPh = indexNum !== null && previewPar > 0
+    ? handicapJeu(indexNum, previewTeeRating ? previewTeeRating.slope : 113, previewTeeRating ? previewTeeRating.sss : previewPar, previewPar, nb)
+    : null;
 
   return (
     <div className="min-h-screen bg-stone-50 pb-10">
@@ -1586,10 +1665,15 @@ function SetupScreen({ onBack, onStart, customCourses }) {
         <div>
           <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Trous joués</div>
           <div className="flex gap-2">
-            {[9, 18].map((n) => (
+            {nbOptions.map((n) => (
               <Pill key={n} active={nb === n} onClick={() => setNb(n)} className="flex-1 text-center">{n} trous</Pill>
             ))}
           </div>
+          {course && course.nb === 9 && (
+            <p className="text-xs text-stone-400 mt-1">
+              Parcours 9 trous : pour un 18 trous (les mêmes 9 trous joués deux fois), enregistre deux parties de 9 trous séparées.
+            </p>
+          )}
         </div>
 
         {course && (
@@ -1604,8 +1688,21 @@ function SetupScreen({ onBack, onStart, customCourses }) {
         )}
 
         <div>
-          <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Handicap de jeu</div>
-          <input type="number" value={ph} onChange={(e) => setPh(Number(e.target.value))} className="w-24 border border-stone-300 rounded-lg px-3 py-2" />
+          <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Index (handicap WHS)</div>
+          <input
+            type="number"
+            step="0.1"
+            value={index}
+            onChange={(e) => setIndex(e.target.value)}
+            placeholder="Index"
+            className="w-24 border border-stone-300 rounded-lg px-3 py-2"
+          />
+          {index !== "" && (
+            <p className="text-xs text-stone-400 mt-1">
+              Handicap de jeu calculé : <strong>{previewPh}</strong> coup{Math.abs(previewPh) > 1 ? "s" : ""} rendu{Math.abs(previewPh) > 1 ? "s" : ""}
+              {previewTeeRating ? ` (slope ${previewTeeRating.slope} · CR ${previewTeeRating.sss})` : " (slope/CR inconnus pour ce départ — calcul neutre)"}
+            </p>
+          )}
         </div>
 
         {course && (
@@ -1620,17 +1717,18 @@ function SetupScreen({ onBack, onStart, customCourses }) {
         )}
 
         <button
-          onClick={() =>
+          onClick={() => {
+            if (indexNum !== null) onSaveHandicapIndex(indexNum);
             onStart({
               courseId,
               courseName: course ? course.nom : (customName || "Parcours"),
               nbToPlay: nb,
               startHole,
-              ph,
+              index: indexNum,
               tee,
               date,
-            })
-          }
+            });
+          }}
           className="w-full bg-amber-600 text-white rounded-xl py-3 font-semibold active:scale-95"
         >
           Commencer
@@ -1755,7 +1853,8 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
       const ecartTrou = holes.reduce((s, h) => s + (holeStrokes(h) - h.par), 0) / holes.length;
       const ptsTrou = holes.reduce((s, h) => s + stableford(holeStrokes(h) - strokesRecu(h.hcp, r.ph, r.totalHolesRef), h.par), 0) / holes.length;
       const isFull = r.holes.length > 0 && r.holes.every((h) => h.putts);
-      const differential = isFull && r.rating ? Math.round(((holes.reduce((s, h) => s + holeStrokes(h), 0) - r.rating.sss) * 113) / r.rating.slope * 10) / 10 : null;
+      // Différentiel WHS : score ajusté (SBA), pas le score brut — voir totalScoreAjuste().
+      const differential = isFull && r.rating ? Math.round(((totalScoreAjuste(holes, r.ph, r.totalHolesRef) - r.rating.sss) * 113) / r.rating.slope * 10) / 10 : null;
       return { date: r.date, courseName: r.courseName, nbHoles: holes.length, isFull, ecartTrou, ptsTrou, differential };
     })
     .filter(Boolean)
