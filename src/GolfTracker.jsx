@@ -724,8 +724,16 @@ export default function GolfTracker({ userEmail }) {
         })
         .sort((a, b) => a.numero - b.numero);
 
+      // Réutilise l'id d'une partie déjà enregistrée à la même date sur le même parcours
+      // (ex. handicap de jeu corrigé à la main dans le CSV avant restauration) : sans ça,
+      // le CSV n'ayant pas d'id, chaque restauration créait une partie EN PLUS de
+      // l'ancienne au lieu de la remplacer — l'ancienne (valeurs fausses) restait dans la
+      // liste. Ambiguïté résiduelle si plusieurs parties existent déjà pour ce couple
+      // date+parcours (ex. un 9 trous joué deux fois le même jour) : la première trouvée
+      // est celle remplacée.
+      const existing = roundsIndex.find((e) => e.date === first[idx["Date"]] && e.courseName === first[idx["Parcours"]]);
       rebuilt.push({
-        id: uid(),
+        id: existing ? existing.id : uid(),
         date: first[idx["Date"]],
         courseId: null,
         courseName: first[idx["Parcours"]],
@@ -748,7 +756,8 @@ export default function GolfTracker({ userEmail }) {
       score: r.holes.reduce((s, h) => s + holeStrokes(h), 0),
       complete: r.holes.every((h) => h.putts),
     }));
-    const merged2 = [...newEntries, ...roundsIndex];
+    const newIds = new Set(newEntries.map((e) => e.id));
+    const merged2 = [...newEntries, ...roundsIndex.filter((e) => !newIds.has(e.id))];
     setRoundsIndex(merged2);
     await storeSet("rounds-index", merged2);
     return rebuilt.length;
