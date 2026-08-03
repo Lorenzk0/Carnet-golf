@@ -2392,7 +2392,7 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
+                <Tooltip formatter={(value) => (typeof value === "number" ? value.toFixed(2) : value)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="ecartTrou" name="Écart/trou" stroke="#1F3D2B" strokeWidth={2} dot={{ r: 3 }} />
                 <Line type="monotone" dataKey="ptsTrou" name="Pts/trou" stroke="#B8935A" strokeWidth={2} dot={{ r: 3 }} />
@@ -2409,7 +2409,7 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
+                <Tooltip formatter={(value) => (typeof value === "number" ? value.toFixed(1) : value)} />
                 <Line type="monotone" dataKey="differential" name="Différentiel" stroke="#1F3D2B" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
