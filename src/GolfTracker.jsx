@@ -302,6 +302,8 @@ export default function GolfTracker({ userEmail }) {
   const [ratingOverrides, setRatingOverrides] = useState({});
   const [username, setUsername] = useState(null);
   const [handicapIndex, setHandicapIndex] = useState(null);
+  const [editIndexOpen, setEditIndexOpen] = useState(false);
+  const [editIndexValue, setEditIndexValue] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -488,6 +490,22 @@ export default function GolfTracker({ userEmail }) {
     const newRound = { ...round, date: newDate };
     setRound(newRound);
     saveRound(newRound);
+  }
+
+  // Recalcule et corrige le handicap de jeu d'une partie déjà enregistrée à partir d'un
+  // index (ex. partie créée avant l'ajout du calcul automatique, ou index mal saisi à
+  // l'origine) — jamais en tapant directement un handicap de jeu, toujours via l'index et
+  // le slope/CR/par déjà connus pour cette partie.
+  function correctRoundIndex(newIndexValue) {
+    if (newIndexValue === "") return;
+    const indexNum = Number(newIndexValue);
+    const totalPar = round.holes.reduce((s, h) => s + h.par, 0);
+    const newPh = handicapJeu(indexNum, round.rating ? round.rating.slope : 113, round.rating ? round.rating.sss : totalPar, totalPar, round.totalHolesRef);
+    const newRound = { ...round, ph: newPh };
+    setRound(newRound);
+    saveRound(newRound);
+    setEditIndexOpen(false);
+    setEditIndexValue("");
   }
 
   // Reconstruit le brouillon (zone de départ du prochain coup) pour un trou donné,
@@ -1278,6 +1296,35 @@ export default function GolfTracker({ userEmail }) {
         </div>
 
         <div className="p-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-stone-200 p-3 flex items-center justify-between gap-2 flex-wrap">
+            <div className="text-xs text-stone-500">
+              Handicap de jeu : <span className="font-semibold text-stone-800">{round.ph}</span>
+            </div>
+            {editIndexOpen ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editIndexValue}
+                  onChange={(e) => setEditIndexValue(e.target.value)}
+                  placeholder="Index"
+                  className="w-20 border border-stone-300 rounded-lg px-2 py-1 text-sm"
+                  autoFocus
+                />
+                <button
+                  onClick={() => correctRoundIndex(editIndexValue)}
+                  disabled={editIndexValue === ""}
+                  className="text-xs bg-amber-600 disabled:bg-stone-300 text-white rounded-lg px-2 py-1.5 font-semibold"
+                >
+                  Recalculer
+                </button>
+                <button onClick={() => setEditIndexOpen(false)} className="text-xs text-stone-400 underline">Annuler</button>
+              </div>
+            ) : (
+              <button onClick={() => setEditIndexOpen(true)} className="text-xs text-emerald-800 underline">Corriger depuis un index</button>
+            )}
+          </div>
+
           <div className="grid grid-cols-3 gap-2">
             <Stat label="Score brut" value={totalStrokes} sub={`${totalStrokes - totalPar >= 0 ? "+" : ""}${totalStrokes - totalPar}`} />
             <Stat label="Score net" value={totalNet} sub={`${totalNet - totalPar >= 0 ? "+" : ""}${totalNet - totalPar}`} />
