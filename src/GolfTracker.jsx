@@ -89,7 +89,7 @@ const LANDING_ZONES = [
 ];
 
 // ---------- Embedded rating.csv : slope + SSS (course rating) par parcours/config/départ ----------
-const TEES = ["Rouges", "Jaunes", "Bleus", "Blancs"];
+const TEES = ["Rouges", "Bleus", "Jaunes", "Blancs"];
 // Slope/CR des parcours partagés : chargés depuis Supabase (courses.ratings), voir
 // le commentaire au-dessus de COURSES. baseRating() plus bas retombe déjà sur
 // customCourses quand RATINGS est vide.
@@ -155,11 +155,13 @@ function roundHalfAwayFromZero(x) {
   return x >= 0 ? Math.floor(x + 0.5) : -Math.floor(-x + 0.5);
 }
 // Handicap de jeu WHS (coups rendus au total) à partir de l'index du joueur (stable,
-// indépendant du parcours), du slope/CR du départ joué et du par total des trous
-// réellement joués. Sur 9 trous, seule la moitié de l'index compte.
-function handicapJeu(index, slope, cr, par, nbTrous) {
-  const facteur = nbTrous === 9 ? index / 2 : index;
-  return roundHalfAwayFromZero(facteur * (slope / 113) + (cr - par));
+// indépendant du parcours) et du slope/CR/par du départ réellement joué. Le 9 trous n'a
+// PAS de traitement à part : le CR9/Par9 du départ (propres à cette config, pas la moitié
+// du 18 trous) portent déjà toute l'information nécessaire — diviser l'index par 2 en plus
+// compterait le 9 trous deux fois. Vérifié contre une carte officielle FFGolf/Kady
+// (Gonesse, index 35, slope 62, CR 33,8, par 36 -> 17, confirmé à l'identique).
+function handicapJeu(index, slope, cr, par) {
+  return roundHalfAwayFromZero(index * (slope / 113) + (cr - par));
 }
 // Score ajusté WHS (SBA) : chaque trou plafonné au double bogey net (par + 2 + coups
 // rendus de CE trou), condition du calcul officiel du différentiel — un score brut non
@@ -423,7 +425,7 @@ export default function GolfTracker({ userEmail }) {
     // Index vide -> aucun coup rendu (0), plutôt que de deviner une valeur.
     const par = holes.reduce((s, h) => s + h.par, 0);
     const ph = index !== null && index !== undefined
-      ? handicapJeu(index, teeRating ? teeRating.slope : 113, teeRating ? teeRating.sss : par, par, nbToPlay)
+      ? handicapJeu(index, teeRating ? teeRating.slope : 113, teeRating ? teeRating.sss : par, par)
       : 0;
     const r = {
       id: uid(),
@@ -500,7 +502,7 @@ export default function GolfTracker({ userEmail }) {
     if (newIndexValue === "") return;
     const indexNum = Number(newIndexValue);
     const totalPar = round.holes.reduce((s, h) => s + h.par, 0);
-    const newPh = handicapJeu(indexNum, round.rating ? round.rating.slope : 113, round.rating ? round.rating.sss : totalPar, totalPar, round.totalHolesRef);
+    const newPh = handicapJeu(indexNum, round.rating ? round.rating.slope : 113, round.rating ? round.rating.sss : totalPar, totalPar);
     const newRound = { ...round, ph: newPh };
     setRound(newRound);
     saveRound(newRound);
@@ -1690,7 +1692,7 @@ function SetupScreen({ onBack, onStart, customCourses, holeOverrides = {}, ratin
   const previewTeeRating = previewRatingRow && previewRatingRow[previewTeeKey] && previewRatingRow[previewTeeKey].slope && previewRatingRow[previewTeeKey].sss ? previewRatingRow[previewTeeKey] : null;
   const indexNum = index === "" ? null : Number(index);
   const previewPh = indexNum !== null && previewPar > 0
-    ? handicapJeu(indexNum, previewTeeRating ? previewTeeRating.slope : 113, previewTeeRating ? previewTeeRating.sss : previewPar, previewPar, nb)
+    ? handicapJeu(indexNum, previewTeeRating ? previewTeeRating.slope : 113, previewTeeRating ? previewTeeRating.sss : previewPar, previewPar)
     : null;
 
   return (
