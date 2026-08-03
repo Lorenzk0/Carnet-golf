@@ -1290,17 +1290,20 @@ export default function GolfTracker({ userEmail }) {
           <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-stone-100 text-stone-500 text-xs uppercase">
-                <tr><th className="p-2 text-left">Trou</th><th className="p-2">Par</th><th className="p-2">Brut</th><th className="p-2">Net</th><th className="p-2">Putts</th><th className="p-2"></th></tr>
+                <tr><th className="p-2 text-left">Trou</th><th className="p-2">Par</th><th className="p-2">Hcp</th><th className="p-2">Brut</th><th className="p-2">Rendus</th><th className="p-2">Net</th><th className="p-2">Putts</th><th className="p-2"></th></tr>
               </thead>
               <tbody>
                 {round.holes.map((h, i) => {
                   const strokes = holeStrokes(h);
-                  const net = strokes - strokesRecu(h.hcp, round.ph, round.totalHolesRef);
+                  const rendus = strokesRecu(h.hcp, round.ph, round.totalHolesRef);
+                  const net = strokes - rendus;
                   return (
                     <tr key={h.numero} className="border-t border-stone-100">
                       <td className="p-2 font-medium">{h.numero}</td>
                       <td className="p-2 text-center">{h.par}</td>
+                      <td className="p-2 text-center text-stone-400">{h.hcp}</td>
                       <td className="p-2 text-center">{strokes || "-"}</td>
+                      <td className="p-2 text-center text-stone-400">{rendus}</td>
                       <td className="p-2 text-center">{h.putts ? net : "-"}</td>
                       <td className="p-2 text-center">{h.putts ? h.putts.count : "-"}</td>
                       <td className="p-2 text-center">
@@ -1316,7 +1319,9 @@ export default function GolfTracker({ userEmail }) {
                 <tr className="border-t-2 border-stone-300 font-semibold bg-stone-50">
                   <td className="p-2">Total</td>
                   <td className="p-2 text-center">{totalPar}</td>
+                  <td className="p-2"></td>
                   <td className="p-2 text-center">{totalStrokes}</td>
+                  <td className="p-2 text-center">{totalStrokesRecus}</td>
                   <td className="p-2 text-center">{totalNet}</td>
                   <td className="p-2 text-center">{round.holes.reduce((s, h) => s + (h.putts?.count || 0), 0)}</td>
                   <td className="p-2"></td>
