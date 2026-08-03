@@ -63,10 +63,13 @@ async function getUserSettings() {
   )
 }
 
-async function getLeaderboard() {
+// from/to (dates ISO, ou null pour "tout") filtrent les parties prises en compte dans
+// l'agrégat — voir leaderboard_filtered() dans supabase/leaderboard.sql. Remplace l'appel
+// direct à la vue `leaderboard` (non filtrable) par cette fonction, y compris pour "tout"
+// (from/to null), pour n'avoir qu'un seul chemin d'agrégation à maintenir.
+async function getLeaderboard(from, to) {
   const { data, error } = await supabase
-    .from('leaderboard')
-    .select('*')
+    .rpc('leaderboard_filtered', { p_from: from || null, p_to: to || null })
     .order('rounds_played', { ascending: false })
   if (error) throw error
   return data.map((r) => ({
@@ -267,7 +270,10 @@ async function performGet(key) {
   if (key === 'rating-overrides') return (await getUserSettings()).rating_overrides
   if (key === 'username') return (await getUserSettings()).username
   if (key === 'handicap-index') return (await getUserSettings()).handicap_index
-  if (key === 'leaderboard') return await getLeaderboard()
+  if (key.startsWith('leaderboard')) {
+    const [, from, to] = key.split(':')
+    return await getLeaderboard(from || null, to || null)
+  }
   if (key.startsWith('round:')) return await getRound(key.slice('round:'.length))
   return null
 }
