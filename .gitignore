@@ -11,7 +11,24 @@ node_modules
 dist
 dist-ssr
 dev-dist
+.next
 *.local
+
+# Environment variables & secrets (Supabase, Vercel, etc.)
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# Vercel
+.vercel
+
+# Supabase local/CLI artifacts
+supabase/.temp
+supabase/.branches
 
 # Editor directories and files
 .vscode/*
