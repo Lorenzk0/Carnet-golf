@@ -32,9 +32,9 @@ Pas d'outil de migration : `schema.sql` est la source de vérité pour une insta
 
 ## Déploiement
 
-Vercel connecté au repo GitHub (projet `carnet-golf`, équipe `lorenzk0s-projects`) : preview automatique par branche/PR. Branche de production et URL de prod à vérifier dans le dashboard Vercel — pas stockées dans le repo (pas de `vercel.json`).
+Vercel connecté au repo GitHub (projet `carnet-golf`, équipe `lorenzk0s-projects`) : preview automatique par branche/PR. Branche de production : `main`. URL de prod : `carnet-golf.vercel.app`. Pas de `vercel.json` dans le repo.
 
 ## Conventions de commit
 
-- Commits individuels : message en **anglais**, impératif, sans préfixe type conventional-commits (ex. `Fix handicap de jeu formula: 9 holes don't need index/2`).
+- Commits individuels : message en **français**, impératif, sans préfixe type conventional-commits (ex. `Corrige la formule du handicap de jeu : pas de division par 2 sur 9 trous`).
 - Titres/descriptions de PR : en **français**, avec sections `## Résumé` / `## Changements` / `## Vérifications effectuées`.
