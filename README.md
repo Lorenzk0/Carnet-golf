@@ -21,7 +21,7 @@ L'authentification se fait par lien magique envoyé par email (pas de mot de pas
 Tout (parcours, parties, coups, réglages perso) vit dans une base Postgres Supabase — schéma complet et commenté dans `supabase/schema.sql`. Le repo ne contient **aucun identifiant** de projet Supabase réel (secret, jamais commité, voir `.env.example` pour le format attendu).
 
 Pour y accéder :
-- **Récupérer les credentials** (`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`) : demande-les au mainteneur actuel, ou regarde dans Vercel → projet `carnet-golf` → *Settings → Environment Variables* (c'est la config utilisée en production).
+- **Récupérer les credentials** (`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`) : Vercel → projet `carnet-golf` → *Settings → Environment Variables* est la seule source (projet solo, pas d'autre mainteneur à contacter).
 - **Éditer le schéma / requêter la base directement** : dashboard Supabase du projet correspondant → *SQL Editor* (pas d'outil de migration : `schema.sql` fait foi pour une install neuve, les autres `supabase/*.sql` sont des scripts additifs à coller à la main).
 - **Voir/gérer les utilisateurs** : dashboard Supabase → *Authentication*.
 
