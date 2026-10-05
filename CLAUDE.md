@@ -16,6 +16,8 @@ Tests : seuls les calculs de score purs (`src/lib/scoring.js` : coups rendus, sc
 
 Documentation des calculs : `src/docs/calculs.md` (formules de toutes les stats affichées), rendue telle quelle dans l'app par `src/CalculsScreen.jsx` (« Comment c'est calculé ? »). Toute modification d'un calcul de stat doit être répercutée dans ce fichier.
 
+Version : `package.json` > `version`, affichée en bas de l'accueil pour vérifier qu'une mise en prod a bien pris (cache PWA). L'incrémenter dans chaque PR destinée à `main` (mineure pour une fonctionnalité, patch pour un correctif).
+
 Pas de CI (`.github/workflows` absent) : le build/lint est à lancer manuellement avant de pousser.
 
 ## Secrets
