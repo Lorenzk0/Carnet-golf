@@ -8,10 +8,11 @@ Stack : React 19 + Vite + Tailwind v4, Supabase (Postgres + Auth + RLS), PWA (vi
 npm run dev       # serveur de dev Vite
 npm run build     # build de prod
 npm run lint      # oxlint (pas d'ESLint)
+npm test          # tests des calculs de score (node --test, src/**/*.test.js)
 npm run preview   # sert le build de prod en local
 ```
 
-Pas de suite de tests dans le repo (aucun fichier `*.test.*`/`*.spec.*`, pas de config Playwright) malgré des mentions de "vérification Playwright" dans les descriptions de PR passées — ces vérifications sont faites ad hoc, pas committées. Ne pas supposer qu'une commande `test` existe.
+Tests : seuls les calculs de score purs (`src/lib/scoring.js` : coups rendus, score ajusté, différentiel) sont testés, avec le runner intégré de Node (`src/lib/scoring.test.js`, aucune dépendance). Pas de test d'interface ; les "vérifications Playwright" mentionnées dans d'anciennes PR étaient faites ad hoc, pas committées.
 
 Pas de CI (`.github/workflows` absent) : le build/lint est à lancer manuellement avant de pousser.
 
@@ -24,7 +25,7 @@ Pas de CI (`.github/workflows` absent) : le build/lint est à lancer manuellemen
 
 - `courses` / `holes` : parcours partagés (`owner_id null`, modifiables par tout utilisateur authentifié — usage privé entre quelques personnes, pas de restriction au créateur) + parcours privés (`owner_id = auth.uid()`).
 - `user_settings` : une ligne par utilisateur (clubs perso, corrections par/hcp et slope/CR, index handicap) — entièrement privé.
-- `rounds` : une partie jouée, privée à son propriétaire. `holes` (jsonb) fige le détail par trou tel que joué au moment de la partie — modifier un parcours plus tard ne change pas les parties déjà enregistrées.
+- `rounds` : une partie jouée, privée à son propriétaire. `holes` (jsonb) fige le détail par trou tel que joué au moment de la partie — modifier un parcours plus tard ne change pas les parties déjà enregistrées. `rating` (jsonb) contient le slope/CR du départ joué et, depuis l'ajout du différentiel 9 trous converti en 18, l'`index` utilisé et, pour un 9 trous joué sur un 18, `ref18` (slope/CR 18 trous + par/index des 9 trous non joués) — tous deux optionnels, reconstitués à défaut pour les anciennes parties.
 - `shots` : chaque coup d'une partie, droits hérités de `rounds` via `round_id`.
 - Vue `leaderboard` + fonction `leaderboard_filtered(p_from, p_to)` (`security definer`) : seuls les agrégats par joueur sont exposés cross-utilisateur, jamais les parties/coups bruts d'autrui.
 

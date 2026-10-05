@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Flag, ChevronRight, ChevronLeft, Plus, Trash2, Copy, Check, Home, X, BarChart3, Trophy, Save, MapPin } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { storeGet, storeSet, storeDelete } from "./lib/storage.js";
+import { holeStrokes, strokesParTrou, stableford, handicapJeu, differentiel } from "./lib/scoring.js";
 import { version as pkgVersion } from "../package.json";
 
 // Les parcours (partagés + privés par utilisateur) vivent désormais dans Supabase
@@ -137,48 +138,6 @@ function rotate(arr, startNum) {
   const idx = arr.findIndex((h) => h.numero === startNum);
   if (idx <= 0) return arr;
   return [...arr.slice(idx), ...arr.slice(0, idx)];
-}
-function strokesRecu(holeHcp, ph, total) {
-  const base = Math.floor(ph / total);
-  // Reste toujours positif (comme Python divmod), pas `ph % total` : l'opérateur % de JS
-  // garde le signe du dividende, ce qui casserait la répartition pour un handicap de jeu
-  // négatif (joueur meilleur que scratch, coups rendus AU parcours).
-  const rest = ph - base * total;
-  return base + (holeHcp <= rest ? 1 : 0);
-}
-function stableford(strokesNet, par) {
-  return Math.max(0, 2 - (strokesNet - par));
-}
-// Arrondi WHS (moitié à l'écart de zéro) : Math.round arrondit -0.5 vers 0 au lieu de -1,
-// ce qui ne suit pas la convention WHS pour un index négatif (meilleur que scratch).
-function roundHalfAwayFromZero(x) {
-  return x >= 0 ? Math.floor(x + 0.5) : -Math.floor(-x + 0.5);
-}
-// Handicap de jeu WHS (coups rendus au total) à partir de l'index du joueur (stable,
-// indépendant du parcours) et du slope/CR/par du départ réellement joué. Le 9 trous n'a
-// PAS de traitement à part : le CR9/Par9 du départ (propres à cette config, pas la moitié
-// du 18 trous) portent déjà toute l'information nécessaire — diviser l'index par 2 en plus
-// compterait le 9 trous deux fois. Vérifié contre une carte officielle FFGolf/Kady
-// (Gonesse, index 35, slope 62, CR 33,8, par 36 -> 17, confirmé à l'identique).
-function handicapJeu(index, slope, cr, par) {
-  return roundHalfAwayFromZero(index * (slope / 113) + (cr - par));
-}
-// Score ajusté WHS (SBA) : chaque trou plafonné au double bogey net (par + 2 + coups
-// rendus de CE trou), condition du calcul officiel du différentiel — un score brut non
-// plafonné gonflerait le différentiel sur un trou catastrophique.
-function scoreAjusteTrou(par, brut, rendus) {
-  return Math.min(brut, par + 2 + rendus);
-}
-function totalScoreAjuste(holes, ph, totalHolesRef) {
-  return holes.reduce((s, h) => {
-    const rendus = strokesRecu(h.hcp, ph, totalHolesRef);
-    return s + scoreAjusteTrou(h.par, holeStrokes(h), rendus);
-  }, 0);
-}
-// Score réel du trou = coups swingués + coups fictifs de pénalité + putts.
-function holeStrokes(hole) {
-  const penalties = hole.shots.filter((s) => s.penalite).length;
-  return hole.shots.length + penalties + (hole.putts?.count || 0);
 }
 // Après un coup, où repart le suivant : à l'endroit d'arrivée normalement,
 // mais si une pénalité s'applique (OB, eau, injouable) on rejoue depuis
@@ -434,7 +393,14 @@ export default function GolfTracker({ userEmail }) {
       courseName,
       ph,
       tee: tee || null,
-      rating: teeRating ? { slope: teeRating.slope, sss: teeRating.sss } : null,
+      rating: teeRating
+        ? {
+            slope: teeRating.slope,
+            sss: teeRating.sss,
+            ...(index !== null && index !== undefined ? { index } : {}),
+            ...(courseId && courseNb === 18 && nbToPlay === 9 ? ref18Snapshot(courseId, holes, tee) : {}),
+          }
+        : null,
       totalHolesRef: courseNb,
       holes: holes.map((h) => ({ ...h, shots: [], putts: null, note: "" })),
     };
@@ -442,6 +408,34 @@ export default function GolfTracker({ userEmail }) {
     setHoleIdx(0);
     setDraft({ zoneStart: "Départ", sideStart: null, club: null, contact: null, zoneEnd: null, sideEnd: null, penalite: null, progression: null, trajectoire: null });
     setScreen("play");
+  }
+
+  // Le 18 trous de référence d'un 9 trous joué sur un parcours de 18 (slope/CR 18 trous du
+  // même départ + par/index des 9 trous non joués), pour convertir le différentiel en
+  // équivalent 18 trous — voir differentiel() dans lib/scoring.js. Figé dans `rating` à la
+  // création de la partie, comme le détail des trous joués.
+  function ref18Of(courseId, playedHoles, tee) {
+    const row = findRating(courseId, 18, 18, 1, customCourses, ratingOverrides);
+    const t = row && row[tee ? tee.toLowerCase() : "bleus"];
+    if (!t || !t.slope || !t.sss) return null;
+    const all = coursHoles(courseId, customCourses, holeOverrides);
+    const played = new Set(playedHoles.map((h) => h.numero));
+    const unplayed = all.filter((h) => !played.has(h.numero)).map((h) => ({ par: h.par, hcp: h.hcp }));
+    if (all.length !== 18 || unplayed.length !== 9) return null;
+    return { slope: Number(t.slope), sss: Number(t.sss), par: all.reduce((s, h) => s + h.par, 0), unplayed };
+  }
+  function ref18Snapshot(courseId, playedHoles, tee) {
+    const ref18 = ref18Of(courseId, playedHoles, tee);
+    return ref18 ? { ref18 } : {};
+  }
+  // Différentiel d'une partie. Parties créées avant que le 18 trous de référence soit figé :
+  // on le reconstitue depuis le parcours actuel.
+  function roundDifferential(r) {
+    let ref18 = r.rating?.ref18 || null;
+    if (!ref18 && r.courseId && r.holes.length === 9 && allCourses.find((c) => c.id === r.courseId)?.nb === 18) {
+      ref18 = ref18Of(r.courseId, r.holes, r.tee);
+    }
+    return differentiel({ holes: r.holes, ph: r.ph, rating: r.rating, index: r.rating?.index, ref18 });
   }
 
   function currentHole() {
@@ -503,7 +497,7 @@ export default function GolfTracker({ userEmail }) {
     const indexNum = Number(newIndexValue);
     const totalPar = round.holes.reduce((s, h) => s + h.par, 0);
     const newPh = handicapJeu(indexNum, round.rating ? round.rating.slope : 113, round.rating ? round.rating.sss : totalPar, totalPar);
-    const newRound = { ...round, ph: newPh };
+    const newRound = { ...round, ph: newPh, rating: round.rating ? { ...round.rating, index: indexNum } : round.rating };
     setRound(newRound);
     saveRound(newRound);
     setEditIndexOpen(false);
@@ -790,21 +784,21 @@ export default function GolfTracker({ userEmail }) {
 
   function buildCSV(r) {
     const maxShots = Math.max(1, ...r.holes.map((h) => h.shots.length));
-    // Différentiel WHS : basé sur le score ajusté (SBA, chaque trou plafonné au double
-    // bogey net), pas le score brut — voir totalScoreAjuste().
-    const scoreAjusteAll = totalScoreAjuste(r.holes, r.ph, r.totalHolesRef);
-    const differential = r.rating ? Math.round(((scoreAjusteAll - r.rating.sss) * 113) / r.rating.slope * 10) / 10 : "";
-    const differentialCol = r.totalHolesRef === 9 ? "Differentiel_9T" : "Differentiel_indicatif";
+    // Différentiel WHS : score ajusté (SBA), 9 trous convertis en équivalent 18 trous —
+    // voir differentiel() dans lib/scoring.js.
+    const differential = roundDifferential(r) ?? "";
+    const differentialCol = r.holes.length === 9 ? "Differentiel_eq18T" : "Differentiel_indicatif";
+    const rendusParTrou = strokesParTrou(r.holes, r.ph);
     const cols = ["Date", "Parcours", "Trou", "Par", "HCP", "Score_brut", "Score_net", "Écart_par", "Points_Stableford", "Handicap_jeu", "Trous_ref_parcours", "Depart", "Slope", "CR", differentialCol];
     for (let i = 1; i <= maxShots; i++) {
       cols.push(`Coup${i}_club`, `Coup${i}_situation`, `Coup${i}_qualite`, `Coup${i}_penalite`, `Coup${i}_progression`, `Coup${i}_trajectoire`);
     }
     cols.push("Putts", "Putt1_distance", "Fairway_touché", "GIR", "Note");
     const rows = [cols.join(",")];
-    r.holes.forEach((h) => {
+    r.holes.forEach((h, i) => {
       const strokes = holeStrokes(h);
       const ecart = strokes - h.par;
-      const net = strokes - strokesRecu(h.hcp, r.ph, r.totalHolesRef);
+      const net = strokes - rendusParTrou[i];
       const pts = stableford(net, h.par);
       const fir = h.par >= 4 ? (h.shots[0]?.zoneEnd === "Fairway" ? "Oui" : "Non") : "";
       const gir = h.putts ? (h.shots.length <= h.par - 2 ? "Oui" : "Non") : "";
@@ -925,7 +919,7 @@ export default function GolfTracker({ userEmail }) {
 
   // ---------------- DASHBOARD ----------------
   if (screen === "dashboard") {
-    return <DashboardScreen onBack={() => setScreen("home")} fetchAllRounds={fetchAllRounds} roundCount={roundsIndex.length} />;
+    return <DashboardScreen onBack={() => setScreen("home")} fetchAllRounds={fetchAllRounds} roundCount={roundsIndex.length} roundDifferential={roundDifferential} />;
   }
 
   // ---------------- LEADERBOARD ----------------
@@ -1205,21 +1199,17 @@ export default function GolfTracker({ userEmail }) {
   if (screen === "summary" && round) {
     const totalStrokes = round.holes.reduce((s, h) => s + holeStrokes(h), 0);
     const totalPar = round.holes.reduce((s, h) => s + h.par, 0);
-    const totalStrokesRecus = round.holes.reduce((s, h) => s + strokesRecu(h.hcp, round.ph, round.totalHolesRef), 0);
+    const rendusParTrou = strokesParTrou(round.holes, round.ph);
+    const totalStrokesRecus = rendusParTrou.reduce((s, x) => s + x, 0);
     const totalNet = totalStrokes - totalStrokesRecus;
-    const totalPts = round.holes.reduce((s, h) => {
-      const strokes = holeStrokes(h);
-      const net = strokes - strokesRecu(h.hcp, round.ph, round.totalHolesRef);
-      return s + stableford(net, h.par);
-    }, 0);
+    const totalPts = round.holes.reduce((s, h, i) => s + stableford(holeStrokes(h) - rendusParTrou[i], h.par), 0);
     const par4plus = round.holes.filter((h) => h.par >= 4);
     const firHit = par4plus.filter((h) => h.shots[0]?.zoneEnd === "Fairway").length;
     const girHit = round.holes.filter((h) => h.putts && h.shots.length <= h.par - 2).length;
     const scrambles = round.holes.filter((h) => h.putts && h.shots.length > h.par - 2 && holeStrokes(h) <= h.par);
-    // Différentiel WHS : basé sur le score ajusté (SBA, chaque trou plafonné au double
-    // bogey net), pas le score brut — voir totalScoreAjuste().
-    const scoreAjuste = totalScoreAjuste(round.holes, round.ph, round.totalHolesRef);
-    const differential = round.rating ? Math.round(((scoreAjuste - round.rating.sss) * 113) / round.rating.slope * 10) / 10 : null;
+    // Différentiel WHS : score ajusté (SBA), 9 trous convertis en équivalent 18 trous —
+    // voir differentiel() dans lib/scoring.js.
+    const differential = roundDifferential(round);
 
     // Par type de trou (3/4/5)
     const byParType = [3, 4, 5].map((par) => {
@@ -1336,7 +1326,7 @@ export default function GolfTracker({ userEmail }) {
             <Stat label="Scrambles" value={scrambles.length} />
             <Stat label="Putts" value={round.holes.reduce((s, h) => s + (h.putts?.count || 0), 0)} />
             {differential !== null && (
-              <Stat label={`Différentiel${round.totalHolesRef === 9 ? " 9T" : ""} (indicatif)`} value={differential} sub={`slope ${round.rating.slope} · CR ${round.rating.sss}`} />
+              <Stat label={`Différentiel${round.holes.length === 9 ? " éq. 18T" : ""} (indicatif)`} value={differential} sub={`slope ${round.rating.slope} · CR ${round.rating.sss}`} />
             )}
           </div>
           {differential !== null && (
@@ -1353,7 +1343,7 @@ export default function GolfTracker({ userEmail }) {
               <tbody>
                 {round.holes.map((h, i) => {
                   const strokes = holeStrokes(h);
-                  const rendus = strokesRecu(h.hcp, round.ph, round.totalHolesRef);
+                  const rendus = rendusParTrou[i];
                   const net = strokes - rendus;
                   return (
                     <tr key={h.numero} className="border-t border-stone-100">
@@ -1801,7 +1791,7 @@ function SetupScreen({ onBack, onStart, customCourses, holeOverrides = {}, ratin
   );
 }
 
-function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
+function DashboardScreen({ onBack, fetchAllRounds, roundCount, roundDifferential }) {
   const [loading, setLoading] = useState(true);
   const [allRounds, setAllRounds] = useState([]);
   const [from, setFrom] = useState("");
@@ -1875,9 +1865,10 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
   }
 
   // Toutes les trous joués (avec putts renseignés), sur la période retenue.
-  const allHoles = rounds.flatMap((r) =>
-    r.holes.filter((h) => h.putts).map((h) => ({ ...h, _ph: r.ph, _totalHolesRef: r.totalHolesRef }))
-  );
+  const allHoles = rounds.flatMap((r) => {
+    const rendus = strokesParTrou(r.holes, r.ph);
+    return r.holes.map((h, i) => ({ ...h, _rendus: rendus[i] })).filter((h) => h.putts);
+  });
 
   if (allHoles.length === 0) {
     return (
@@ -1898,7 +1889,7 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
     );
   }
 
-  const holeNet = (h) => holeStrokes(h) - strokesRecu(h.hcp, h._ph, h._totalHolesRef);
+  const holeNet = (h) => holeStrokes(h) - h._rendus;
   const holePts = (h) => stableford(holeNet(h), h.par);
 
   const totalEcart = allHoles.reduce((s, h) => s + (holeStrokes(h) - h.par), 0);
@@ -1911,13 +1902,14 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount }) {
   // qui se calcule sur un total, exige une partie entièrement jouée.
   const playedRounds = rounds
     .map((r) => {
+      const rendus = strokesParTrou(r.holes, r.ph);
       const holes = r.holes.filter((h) => h.putts);
       if (!holes.length) return null;
       const ecartTrou = holes.reduce((s, h) => s + (holeStrokes(h) - h.par), 0) / holes.length;
-      const ptsTrou = holes.reduce((s, h) => s + stableford(holeStrokes(h) - strokesRecu(h.hcp, r.ph, r.totalHolesRef), h.par), 0) / holes.length;
+      const ptsTrou = r.holes.reduce((s, h, i) => s + (h.putts ? stableford(holeStrokes(h) - rendus[i], h.par) : 0), 0) / holes.length;
       const isFull = r.holes.length > 0 && r.holes.every((h) => h.putts);
-      // Différentiel WHS : score ajusté (SBA), pas le score brut — voir totalScoreAjuste().
-      const differential = isFull && r.rating ? Math.round(((totalScoreAjuste(holes, r.ph, r.totalHolesRef) - r.rating.sss) * 113) / r.rating.slope * 10) / 10 : null;
+      // Différentiel WHS (score ajusté, 9 trous convertis en 18) — voir differentiel() dans lib/scoring.js.
+      const differential = isFull ? roundDifferential(r) : null;
       return { date: r.date, courseName: r.courseName, nbHoles: holes.length, isFull, ecartTrou, ptsTrou, differential };
     })
     .filter(Boolean)
