@@ -14,6 +14,8 @@ npm run preview   # sert le build de prod en local
 
 Tests : seuls les calculs de score purs (`src/lib/scoring.js` : coups rendus, score ajusté, différentiel) sont testés, avec le runner intégré de Node (`src/lib/scoring.test.js`, aucune dépendance). Pas de test d'interface ; les "vérifications Playwright" mentionnées dans d'anciennes PR étaient faites ad hoc, pas committées.
 
+Documentation des calculs : `src/docs/calculs.md` (formules de toutes les stats affichées), rendue telle quelle dans l'app par `src/CalculsScreen.jsx` (« Comment c'est calculé ? »). Toute modification d'un calcul de stat doit être répercutée dans ce fichier.
+
 Pas de CI (`.github/workflows` absent) : le build/lint est à lancer manuellement avant de pousser.
 
 ## Secrets
