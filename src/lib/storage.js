@@ -47,7 +47,7 @@ function isNetworkError(e) {
   return !!e && e.code === ''
 }
 
-// Mirroir de holeStrokes() dans GolfTracker.jsx : score réel d'un trou = coups +
+// Mirroir de holeStrokes() dans lib/scoring.js : score réel d'un trou = coups +
 // pénalités fictives + putts. Dupliqué ici (3 lignes) plutôt que d'exporter depuis
 // le composant, pour ne pas toucher à sa structure.
 function holeStrokes(hole) {
