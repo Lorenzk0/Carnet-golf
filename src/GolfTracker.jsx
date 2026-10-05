@@ -4,6 +4,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { storeGet, storeSet, storeDelete } from "./lib/storage.js";
 import { holeStrokes, strokesParTrou, stableford, handicapJeu, differentiel } from "./lib/scoring.js";
 import { version as pkgVersion } from "../package.json";
+import CalculsScreen from "./CalculsScreen.jsx";
 
 // Les parcours (partagés + privés par utilisateur) vivent désormais dans Supabase
 // (table `courses`, voir supabase/schema.sql) plutôt qu'en dur ici. `customCourses`
@@ -249,8 +250,10 @@ function Pill({ active, onClick, children, className = "" }) {
 }
 
 export default function GolfTracker({ userEmail }) {
-  const [screen, setScreen] = useState("home"); // home | setup | play | summary | settings
+  const [screen, setScreen] = useState("home"); // home | setup | play | summary | settings | calculs
   const [settingsTab, setSettingsTab] = useState("clubs");
+  // Écran d'où l'on a ouvert « Comment c'est calculé ? », pour y revenir en le fermant.
+  const [calculsFrom, setCalculsFrom] = useState("home");
   const [roundsIndex, setRoundsIndex] = useState([]);
   const [round, setRound] = useState(null);
   const [holeIdx, setHoleIdx] = useState(0);
@@ -367,6 +370,11 @@ export default function GolfTracker({ userEmail }) {
 
   function startSetup() {
     setScreen("setup");
+  }
+
+  function showCalculs(from) {
+    setCalculsFrom(from);
+    setScreen("calculs");
   }
 
   function beginRound({ courseId, courseName, nbToPlay, startHole, index, date, tee }) {
@@ -896,7 +904,10 @@ export default function GolfTracker({ userEmail }) {
               </div>
             ))}
           </div>
-          <p className="text-center text-stone-300 text-xs mt-8">{APP_VERSION}</p>
+          <p className="text-center text-xs mt-8">
+            <button onClick={() => showCalculs("home")} className="text-stone-400 underline">Comment sont calculées les stats ?</button>
+          </p>
+          <p className="text-center text-stone-300 text-xs mt-2">{APP_VERSION}</p>
         </div>
       </div>
     );
@@ -919,12 +930,16 @@ export default function GolfTracker({ userEmail }) {
 
   // ---------------- DASHBOARD ----------------
   if (screen === "dashboard") {
-    return <DashboardScreen onBack={() => setScreen("home")} fetchAllRounds={fetchAllRounds} roundCount={roundsIndex.length} roundDifferential={roundDifferential} />;
+    return <DashboardScreen onBack={() => setScreen("home")} onShowCalculs={() => showCalculs("dashboard")} fetchAllRounds={fetchAllRounds} roundCount={roundsIndex.length} roundDifferential={roundDifferential} />;
   }
 
   // ---------------- LEADERBOARD ----------------
   if (screen === "leaderboard") {
-    return <LeaderboardScreen onBack={() => setScreen("home")} username={username} onSaveUsername={saveUsername} />;
+    return <LeaderboardScreen onBack={() => setScreen("home")} onShowCalculs={() => showCalculs("leaderboard")} username={username} onSaveUsername={saveUsername} />;
+  }
+
+  if (screen === "calculs") {
+    return <CalculsScreen onBack={() => setScreen(calculsFrom)} />;
   }
 
   // ---------------- SETTINGS ----------------
@@ -1083,7 +1098,7 @@ export default function GolfTracker({ userEmail }) {
 
               {draft.isChip ? (
                 <div>
-                  <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Distance du chip</div>
+                  <div className="text-xs font-semibold text-stone-500 uppercase mb-1.5">Distance du chip <span className="normal-case font-normal text-stone-400">· jusqu'au drapeau</span></div>
                   <div className="flex flex-wrap gap-2">
                     {CHIP_DIST.map((d) => (
                       <Pill key={d} active={draft.chipDist === d} onClick={() => setDraft({ ...draft, chipDist: d })}>{d}</Pill>
@@ -1791,7 +1806,7 @@ function SetupScreen({ onBack, onStart, customCourses, holeOverrides = {}, ratin
   );
 }
 
-function DashboardScreen({ onBack, fetchAllRounds, roundCount, roundDifferential }) {
+function DashboardScreen({ onBack, onShowCalculs, fetchAllRounds, roundCount, roundDifferential }) {
   const [loading, setLoading] = useState(true);
   const [allRounds, setAllRounds] = useState([]);
   const [from, setFrom] = useState("");
@@ -2080,6 +2095,7 @@ function DashboardScreen({ onBack, fetchAllRounds, roundCount, roundDifferential
           <div className="text-emerald-200 text-xs">
             {rounds.length} partie{rounds.length > 1 ? "s" : ""} · {allHoles.length} trous joués{isFiltered ? " · période filtrée" : ""}
           </div>
+          <button onClick={onShowCalculs} className="text-emerald-200 text-xs underline">Comment c'est calculé ?</button>
         </div>
       </div>
 
@@ -2671,7 +2687,7 @@ function leaderboardFmt(v, suffix = "") {
   return v === null || v === undefined ? "—" : `${v}${suffix}`;
 }
 
-function LeaderboardScreen({ onBack, username, onSaveUsername }) {
+function LeaderboardScreen({ onBack, onShowCalculs, username, onSaveUsername }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [sortKey, setSortKey] = useState("roundsPlayed");
@@ -2735,7 +2751,10 @@ function LeaderboardScreen({ onBack, username, onSaveUsername }) {
     <div className="min-h-screen bg-stone-50 pb-10">
       <div className="bg-emerald-900 text-white px-5 pt-8 pb-6 flex items-center gap-3">
         <button onClick={onBack}><X size={22} /></button>
-        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> Classement</h1>
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> Classement</h1>
+          <button onClick={onShowCalculs} className="text-emerald-200 text-xs underline">Comment c'est calculé ?</button>
+        </div>
       </div>
 
       <div className="p-5 space-y-5">
